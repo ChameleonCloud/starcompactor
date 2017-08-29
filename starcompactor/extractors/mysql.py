@@ -22,12 +22,6 @@ def count_instances(db):
     return db.query(sql, limit=None)
 
 
-def datetime_serializer(obj):
-    if isinstance(obj, datetime.datetime):
-        return obj.isoformat()
-    raise TypeError("don't know how to serialize object {}".format(repr(obj)))
-
-
 def traces_query(db, start=None, end=None):
     sql = '''
     SELECT
@@ -92,62 +86,4 @@ def traces(db, start=None, end=None):
                 'start_time': iae.start_time,
                 'finish_time': iae.finish_time,
             }
-            # print(event)
             yield event
-            # print(ia, iae)
-            # import code;code.interact(local=locals())
-            # return
-
-FIELD_ORDER = ['']
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    mysqlargs = mysql.MySqlArgs({
-        'user': 'root',
-        'password': '',
-        'host': 'localhost',
-        'port': 3306,
-    })
-    mysqlargs.inject(parser)
-    parser.add_argument('-s', '--start', type=str)
-    parser.add_argument('-e', '--end', type=str)
-    parser.add_argument('-c', '--epoch', type=str, default='2015-09-06T23:31:16',
-        help='Time to compute relative dates from')
-    parser.add_argument('-m', '--no-masking', action='store_true',
-        help='Don\'t mask user data')
-    parser.add_argument('-j', '--jsons', action='store_true',
-        help='Format output as one JSON per line (defaults to CSV-style)')
-    parser.add_argument('output_file', type=str,
-        help='File to dump results')
-
-    args = parser.parse_args()
-    mysqlargs.extract(args)
-
-    start = dateparse(args.start) if args.start else None
-    end = dateparse(args.end) if args.end else None
-    epoch = dateparse(args.epoch)
-
-    mask = Masker('sha512', 32)
-
-    db = mysqlargs.connect(db='nova')
-
-    # print(list(count_instances(db)))
-
-    with open(args.output_file, 'w') as f:
-        for n, trace in enumerate(traces_query(db, start=start, end=end)):
-            if not args.no_masking:
-                for field in ['user_id', 'project_id', 'hostname', 'host']:
-                    trace[field] = mask(trace[field])
-
-            trace['start_sec'] = (trace['start_time'] - epoch).total_seconds()
-            if trace['finish_time'] is not None:
-                trace['finish_sec'] = (trace['finish_time'] - epoch).total_seconds()
-                trace['duration'] = (trace['finish_time'] - trace['start_time']).total_seconds()
-            else:
-                trace['finish_sec'] = None
-                trace['duration'] = None
-
-            f.write(json.dumps(trace, default=datetime_serializer) + '\n')
-            # print(trace)
-            # if n > 10: break

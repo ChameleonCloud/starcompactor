@@ -10,8 +10,8 @@ import sys
 from dateutil.parser import parse as dateparse
 import peewee as pw
 
-from .masker import Masker
-import .nova_models as nm
+from ..masker import Masker
+import ._nova_models as nm
 
 
 def count_instances():

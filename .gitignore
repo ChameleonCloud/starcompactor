@@ -1,5 +1,7 @@
 *.py[cod]
 *.log
+*.csv
+*.json
 *.jsons
 Untitled*.ipynb
 .ipynb_checkpoints/
