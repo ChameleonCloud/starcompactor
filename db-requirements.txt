@@ -1,0 +1,2 @@
+-r general-requirements.txt
+mysqlclient

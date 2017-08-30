@@ -109,7 +109,13 @@ class Auth(object):
 
 
 def _instances(auth, limit=100, marker=None, deleted=False):
-    '''Get one page of instances'''
+    '''
+    Get one page of instances
+
+    .. seealso::
+
+        `OpenStack Compute API Reference <https://developer.openstack.org/api-ref/compute/#list-servers-detailed>`_
+    '''
     params = {
         'all_tenants': True,
         'deleted': deleted,
@@ -132,9 +138,15 @@ def _instances(auth, limit=100, marker=None, deleted=False):
 
 
 def all_instances(auth, _pagesize=PAGE_SIZE):
-    '''Iterate over all instances ever.'''
-    # for deleted_state in [True, False]:
-    for deleted_state in [False]:
+    '''
+    Iterate over all instances ever. Only requests a page (*_pagesize*)
+    at a time to avoid large/unbounded memory use and possible problems with
+    the HTTP API.
+    '''
+    # Deleted/non-deleted instances are iterated over separately because
+    # "deleted = True" means show *only* deleted instances, not *both* deleted
+    # and undeleted instances.
+    for deleted_state in [True, False]:
         _instancesp = functools.partial(_instances, auth, limit=_pagesize, deleted=deleted_state)
         insts = _instancesp()
         while True:
@@ -147,13 +159,22 @@ def all_instances(auth, _pagesize=PAGE_SIZE):
 
 
 def instance_actions(auth, server_id):
+    '''
+    Get the rough list of actions. As per the API reference: action details
+    of deleted instances can be returned for requests later than
+    microversion 2.21.
+
+    .. seealso::
+
+        `OpenStack Compute API Reference <https://developer.openstack.org/api-ref/compute/#list-actions-for-server>`_
+    '''
     print('GET /servers/<id>/os-instance-actions')
     response = requests.get(
         auth.endpoint('compute') + '/servers/{}/os-instance-actions'.format(server_id),
         headers={
             'X-Auth-Token': auth.token,
             # must specify API microversion to see a deleted server's actions
-            # 'X-OpenStack-Nova-API-Version': '2.21',
+            'X-OpenStack-Nova-API-Version': '2.21',
         },
     )
     response.raise_for_status()
@@ -161,12 +182,24 @@ def instance_actions(auth, server_id):
 
 
 def instance_action_details(auth, server_id, request_id):
+    '''
+    Get details for the action. This is required to split up an action into
+    individual events (like scheduling vs. executing?), and also for the
+    following field data:
+
+    * finish_time
+    * result (does this correlate with message that the actions list already has?)
+
+    .. seealso::
+
+        `OpenStack Compute API Reference <https://developer.openstack.org/api-ref/compute/#show-server-action-details>`_
+    '''
     print('GET /servers/<id>/os-instance-actions/<request>')
     response = requests.get(
         auth.endpoint('compute') + '/servers/{}/os-instance-actions/{}'.format(server_id, request_id),
         headers={
             'X-Auth-Token': auth.token,
-            # 'X-OpenStack-Nova-API-Version': '2.21',
+            'X-OpenStack-Nova-API-Version': '2.21',
         },
     )
     response.raise_for_status()
@@ -176,6 +209,20 @@ def instance_action_details(auth, server_id, request_id):
 _flavor_cache = {}
 #@functools.lru_cache() # Py3.2+
 def nova_flavor(auth, flavor_id):
+    '''
+    Gets information about the Nova flavor so it can be attached to the
+    trace event row.
+
+    .. note::
+
+        All events for a given instance will always have the same
+        CPUs/RAM/disk.
+
+    Newer (2.47?) Nova APIs will do this little request internally when
+    getting the instance details. By memoizing this, it should drastically
+    reduce the overall number of requests. There's no bound on the cache,
+    but hopefully the number of flavors is less than 1000.
+    '''
     # <py2 memoize hack>
     global _flavor_cache
     try:
@@ -185,7 +232,7 @@ def nova_flavor(auth, flavor_id):
     # </py2 memoize hack>
     print('GET /flavors/<id>')
     response = requests.get(
-        auth.endpoint('compute') + f'/flavors/{flavor_id}',
+        auth.endpoint('compute') + '/flavors/{}'.format(flavor_id),
         headers={
             'X-Auth-Token': auth.token,
             'X-OpenStack-Nova-API-Version': '2.21',
@@ -201,6 +248,7 @@ def nova_flavor(auth, flavor_id):
 
 
 def traces_raw(auth):
+    '''Yield instance/action/event data in all combinations.'''
     for instance in all_instances(auth):
         actions = instance_actions(auth, instance['id'])
         for action in actions:
@@ -210,6 +258,7 @@ def traces_raw(auth):
 
 
 def traces(auth):
+    '''Extract the desired fields from the instance/action/event combos.'''
     for instance, action, event in traces_raw(auth):
         flavor = nova_flavor(auth, instance['flavor']['id'])
         yield {

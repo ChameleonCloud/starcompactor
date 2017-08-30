@@ -31,7 +31,7 @@ def main():
     parser.add_argument('-m', '--masking', type=str, default='sha2-salted',
         choices=MASKERS,
         help='User data mask type. "sha1-raw" is legacy and not recommended as '
-             'it is vulnerable to cracking. "none" is for debugging only.')
+             'it is vulnerable to cracking. "none" is for debugging.')
     parser.add_argument('-j', '--jsons', action='store_true',
         help='Format output as one JSON per line (defaults to CSV-style)')
     parser.add_argument('output_file', type=str,

@@ -13,6 +13,21 @@ MASKERS = {
 
 
 class Masker:
+    '''
+    Generates a callable that will hash data so the original is not known. A
+    salt is recommended to prevent reversing low-entropy values.
+
+    Returns a hex string.
+
+    Keyword Arguments
+    -----------------
+    If *salt* is ``None``, a 256-bit salt is generated. Storing it is not
+    recommended.
+
+    If *truncate* is not ``None``, the resulting hex string is truncated to
+    that many digits. If the number of unique hashes is less than 20 billion,
+    128-bit hashes collide with the probability $10^{-18}$.
+    '''
     def __init__(self, method='sha256', salt=None, truncate=None):
         if salt is None:
             self.salt = os.urandom(32)
