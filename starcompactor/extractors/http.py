@@ -10,9 +10,41 @@ from dateutil.parser import parse as dateparse
 from dateutil.tz import tzutc
 import requests
 
-
+LOG = logging.getLogger(__name__)
 OS_ENV_PREFIX = 'OS_'
 PAGE_SIZE = 25
+
+
+def find_v2_endpoint(auth_url):
+    """
+    Because sometimes OS_AUTH_URL points at one version or all the
+    versions... #bad-ad-hoc-driven-coding #BADcoding
+    """
+    response = requests.get(auth_url)
+    response.raise_for_status()
+    data = response.json()
+    if 'versions' in data:
+        ids = []
+        for version in data['versions']['values']:
+            id_ = version['id']
+            if id_ == 'v2.0':
+                for link in version['links']:
+                    if link['rel'] == 'self':
+                        return link['href']
+                else:
+                    id_ += ' (no self-link provided)'
+            ids.append(id_)
+        raise RuntimeError('Could not find "v2.0" auth endpoint (found {})'.format(ids))
+
+    elif 'version' in data:
+        id_ = data['version']['id']
+        if id_ == 'v2.0':
+            return auth_url
+        # try to remove the last part?
+        raise RuntimeError('Auth endpoint not "v2.0" (is "{}")'.format(id_))
+    else:
+        # blindly hope it'll work?
+        return auth_url
 
 
 # from https://github.com/ChameleonCloud/hammers/blob/master/hammers/osapi.py
@@ -50,10 +82,12 @@ class Auth(object):
         missing_vars = self.required_os_vars - set(rc)
         if missing_vars:
             raise RuntimeError('Missing required OS values: {}'.format(missing_vars))
+
+        self.v2endpoint = find_v2_endpoint(self.rc['OS_AUTH_URL'])
         self.authenticate()
 
     def authenticate(self):
-        response = requests.post(self.rc['OS_AUTH_URL'] + '/tokens', json={
+        response = requests.post(self.v2endpoint + '/tokens', json={
         'auth': {
             'passwordCredentials': {
                 'username': self.rc['OS_USERNAME'],
@@ -118,14 +152,17 @@ def _instances(auth, limit=100, marker=None, deleted=False):
     '''
     params = {
         'all_tenants': True,
-        'deleted': deleted,
     }
+    if deleted:
+        # If you send "deleted=False" or "deleted=0" to the API, it
+        # interprets that as True.
+        params['deleted'] = 1
     if limit:
         params['limit'] = limit
     if marker:
         params['marker'] = marker
 
-    print('GET /servers/detail')
+    LOG.info('GET /servers/detail')
     response = requests.get(
         auth.endpoint('compute') + '/servers/detail',
         headers={
@@ -151,7 +188,7 @@ def all_instances(auth, _pagesize=PAGE_SIZE):
         insts = _instancesp()
         while True:
             for inst in insts:
-                print(inst)
+                LOG.debug(inst)
                 yield inst
             insts = _instancesp(marker=inst['id'])
             if len(insts) == 0:
@@ -168,7 +205,7 @@ def instance_actions(auth, server_id):
 
         `OpenStack Compute API Reference <https://developer.openstack.org/api-ref/compute/#list-actions-for-server>`_
     '''
-    print('GET /servers/<id>/os-instance-actions')
+    LOG.info('GET /servers/<id>/os-instance-actions')
     response = requests.get(
         auth.endpoint('compute') + '/servers/{}/os-instance-actions'.format(server_id),
         headers={
@@ -194,7 +231,7 @@ def instance_action_details(auth, server_id, request_id):
 
         `OpenStack Compute API Reference <https://developer.openstack.org/api-ref/compute/#show-server-action-details>`_
     '''
-    print('GET /servers/<id>/os-instance-actions/<request>')
+    LOG.info('GET /servers/<id>/os-instance-actions/<request>')
     response = requests.get(
         auth.endpoint('compute') + '/servers/{}/os-instance-actions/{}'.format(server_id, request_id),
         headers={
@@ -230,7 +267,7 @@ def nova_flavor(auth, flavor_id):
     except KeyError:
         pass
     # </py2 memoize hack>
-    print('GET /flavors/<id>')
+    LOG.info('GET /flavors/<id>')
     response = requests.get(
         auth.endpoint('compute') + '/flavors/{}'.format(flavor_id),
         headers={

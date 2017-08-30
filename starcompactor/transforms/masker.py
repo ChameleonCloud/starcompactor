@@ -47,7 +47,7 @@ class Masker:
 def mask_fields(trace, masker):
     for field in MASKED_FIELDS:
         if trace[field]:
-            trace[field] = mask(trace[field])
+            trace[field] = masker(trace[field])
         else:
             trace[field] = ''
     return trace

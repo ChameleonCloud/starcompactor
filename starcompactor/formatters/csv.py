@@ -40,5 +40,5 @@ def write(filename, traces):
         f.write(','.join(_CSV_HEADER) + '\n')
 
         for n, trace in enumerate(traces):
-            print(trace)
+            # print(trace)
             f.write(csv_row(trace) + '\n')
