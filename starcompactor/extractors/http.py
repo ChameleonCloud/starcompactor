@@ -363,17 +363,20 @@ def traces(auth):
     '''Extract the desired fields from the instance/action/event combos.'''
     for instance, action, event in traces_raw(auth):
         flavor = nova_flavor(auth, instance['flavor']['id'])
-        yield {
-            'uuid': instance['id'],
-            'vcpus': flavor['vcpus'],
-            'memory_mb': flavor['ram'],
-            'root_gb': flavor['disk'],
-            'user_id': instance['user_id'],
-            'project_id': instance['tenant_id'],
-            'hostname': instance['name'],
-            'host': instance['OS-EXT-SRV-ATTR:host'],
-            'event': event['event'],
-            'result': event['result'],
-            'start_time': dateparse(event['start_time']),
-            'finish_time': dateparse(event['finish_time']),
-        }
+        if event['finish_time'] is None:
+            LOG.debug('Invalid event %s', event)
+        else:
+            yield {
+                'uuid': instance['id'],
+                'vcpus': flavor['vcpus'],
+                'memory_mb': flavor['ram'],
+                'root_gb': flavor['disk'],
+                'user_id': instance['user_id'],
+                'project_id': instance['tenant_id'],
+                'hostname': instance['name'],
+                'host': instance['OS-EXT-SRV-ATTR:host'],
+                'event': event['event'],
+                'result': event['result'],
+                'start_time': dateparse(event['start_time']),
+                'finish_time': dateparse(event['finish_time']),
+            }
