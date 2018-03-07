@@ -2,6 +2,9 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import datetime
+import logging
+
+LOG = logging.getLogger(__name__)
 
 
 CSV_COLUMNS = [
@@ -41,4 +44,6 @@ def write(filename, traces):
 
         for n, trace in enumerate(traces):
             # print(trace)
-            f.write(csv_row(trace) + '\n')
+            line = csv_row(trace)
+            LOG.info(line)
+            f.write(line + '\n')

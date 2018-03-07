@@ -5,14 +5,21 @@ import datetime
 import functools
 import logging
 import os
+import re
 
-from dateutil.parser import parse as dateparse
+from dateutil.parser import parse as _dateparse
 from dateutil.tz import tzutc
 import requests
 
 LOG = logging.getLogger(__name__)
 OS_ENV_PREFIX = 'OS_'
 PAGE_SIZE = 25
+
+
+def dateparse(value):
+    if value is None:
+        return None
+    return _dateparse(value)
 
 
 def find_v2_endpoint(auth_url):
@@ -45,6 +52,40 @@ def find_v2_endpoint(auth_url):
     else:
         # blindly hope it'll work?
         return auth_url
+
+
+def load_osrc(fn, get_pass=False):
+    '''Parse a Bash RC file dumped out by the dashboard to a dict.
+    Used to load the file specified by :py:func:`add_arguments`.'''
+    envval = re.compile(r'''
+        \s* # maybe whitespace
+        (?P<key>[A-Za-z0-9_\-$]+)  # variable name
+        =
+        ([\'\"]?)                  # optional quote
+        (?P<value>.*)              # variable content
+        \2                         # matching quote
+        ''', flags=re.VERBOSE)
+    rc = {}
+    with open(fn, 'r') as f:
+        for line in f:
+            match = envval.search(line)
+            if not match:
+                continue
+            match = match.groupdict()
+            rc[match['key']] = match['value']
+
+    try:
+        password = rc['OS_PASSWORD']
+    except KeyError:
+        pass
+    else:
+        if password == '$OS_PASSWORD_INPUT':
+            rc.pop('OS_PASSWORD')
+
+    if get_pass:
+        rc['OS_PASSWORD'] = getpass.getpass('Enter your password: ')
+
+    return rc
 
 
 # from https://github.com/ChameleonCloud/hammers/blob/master/hammers/osapi.py
@@ -83,10 +124,14 @@ class Auth(object):
         if missing_vars:
             raise RuntimeError('Missing required OS values: {}'.format(missing_vars))
 
+        self.region = self.rc.get('OS_REGION', None)
+        self.L.debug('region = "{}"'.format(self.region))
         self.v2endpoint = find_v2_endpoint(self.rc['OS_AUTH_URL'])
+        self.L.debug('auth endpoint = "{}"'.format(self.v2endpoint))
         self.authenticate()
 
     def authenticate(self):
+        self.L.debug('authenticating')
         response = requests.post(self.v2endpoint + '/tokens', json={
         'auth': {
             'passwordCredentials': {
@@ -136,10 +181,21 @@ class Auth(object):
             raise RuntimeError("didn't find any services matching type '{}'".format(type))
         elif len(services) > 1:
             raise RuntimeError("found multiple services matching type '{}'".format(type))
-
         service = services[0]
+        endpoints = service['endpoints']
 
-        return service['endpoints'][0]['publicURL']
+        if self.region:
+            for endpoint in endpoints:
+                if endpoint['region'] == self.region:
+                    # leak endpoint out of the loop
+                    break
+            else:
+                raise RuntimeError("didn't find any endpoints for region '{}'".format(self.region))
+        else:
+            # pick arbitrary region if none provided.
+            endpoint = endpoints[0]
+
+        return endpoint['publicURL']
 
 
 def _instances(auth, limit=100, marker=None, deleted=False):
@@ -162,7 +218,7 @@ def _instances(auth, limit=100, marker=None, deleted=False):
     if marker:
         params['marker'] = marker
 
-    LOG.info('GET /servers/detail')
+    LOG.info('GET /servers/detail, params: {}'.format(params))
     response = requests.get(
         auth.endpoint('compute') + '/servers/detail',
         headers={
@@ -174,7 +230,7 @@ def _instances(auth, limit=100, marker=None, deleted=False):
     return response.json()['servers']
 
 
-def all_instances(auth, _pagesize=PAGE_SIZE):
+def all_instances(auth, include_deleted=True, _pagesize=PAGE_SIZE):
     '''
     Iterate over all instances ever. Only requests a page (*_pagesize*)
     at a time to avoid large/unbounded memory use and possible problems with
@@ -183,7 +239,12 @@ def all_instances(auth, _pagesize=PAGE_SIZE):
     # Deleted/non-deleted instances are iterated over separately because
     # "deleted = True" means show *only* deleted instances, not *both* deleted
     # and undeleted instances.
-    for deleted_state in [True, False]:
+    if include_deleted:
+        deleted_states = [True, False]
+    else:
+        deleted_states = [False]
+
+    for deleted_state in deleted_states:
         _instancesp = functools.partial(_instances, auth, limit=_pagesize, deleted=deleted_state)
         insts = _instancesp()
         while True:
@@ -205,7 +266,7 @@ def instance_actions(auth, server_id):
 
         `OpenStack Compute API Reference <https://developer.openstack.org/api-ref/compute/#list-actions-for-server>`_
     '''
-    LOG.info('GET /servers/<id>/os-instance-actions')
+    LOG.info('GET /servers/{}/os-instance-actions'.format(server_id))
     response = requests.get(
         auth.endpoint('compute') + '/servers/{}/os-instance-actions'.format(server_id),
         headers={
@@ -231,7 +292,7 @@ def instance_action_details(auth, server_id, request_id):
 
         `OpenStack Compute API Reference <https://developer.openstack.org/api-ref/compute/#show-server-action-details>`_
     '''
-    LOG.info('GET /servers/<id>/os-instance-actions/<request>')
+    LOG.info('GET /servers/{}/os-instance-actions/{}'.format(server_id, request_id))
     response = requests.get(
         auth.endpoint('compute') + '/servers/{}/os-instance-actions/{}'.format(server_id, request_id),
         headers={
@@ -267,7 +328,7 @@ def nova_flavor(auth, flavor_id):
     except KeyError:
         pass
     # </py2 memoize hack>
-    LOG.info('GET /flavors/<id>')
+    LOG.info('GET /flavors/{}'.format(flavor_id))
     response = requests.get(
         auth.endpoint('compute') + '/flavors/{}'.format(flavor_id),
         headers={
@@ -288,6 +349,10 @@ def traces_raw(auth):
     '''Yield instance/action/event data in all combinations.'''
     for instance in all_instances(auth):
         actions = instance_actions(auth, instance['id'])
+        if not actions:
+            LOG.info('instance {} has no actions'.format(instance['id']))
+            continue
+
         for action in actions:
             details = instance_action_details(auth, instance['id'], action['request_id'])
             for event in details['events']:

@@ -3,6 +3,9 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import datetime
 import json
+import logging
+
+LOG = logging.getLogger(__name__)
 
 
 def datetime_serializer(obj):
@@ -14,4 +17,6 @@ def datetime_serializer(obj):
 def write(filename, events):
     with open(filename, 'w') as f:
         for event in events:
-            f.write(json.dumps(event) + '\n')
+            line = json.dumps(event, default=datetime_serializer)
+            LOG.info(line)
+            f.write(line + '\n')

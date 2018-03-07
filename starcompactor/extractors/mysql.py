@@ -6,9 +6,6 @@ import sys
 
 from dateutil.parser import parse as dateparse
 
-from .masker import Masker
-from . import mysql
-
 
 def count_instances(db):
     '''
@@ -64,26 +61,26 @@ def traces_query(db, start=None, end=None):
     return db.query(sql, args=params, limit=None)
 
 
-def traces(db, start=None, end=None):
-    results = traces_query(db, start, end)
+# def traces(db, start=None, end=None):
+#     results = traces_query(db, start, end)
 
-    for page in range(count // PAGE_SIZE):
-        for instance in query.paginate(page, PAGE_SIZE).iterator():
-            ia = instance.instanceactions_set[0]
-            iae =  ia.instanceactionsevents_set[0]
-            event = {
-                'uuid': instance.uuid,
-                'vcpus': instance.vcpus,
-                'memory_mb': instance.memory_mb,
-                'root_gb': instance.root_gb,
-                'user_id': instance.user,
-                'project_id': instance.project,
-                'hostname': instance.hostname,
-                'host': instance.host,
+#     for page in range(count // PAGE_SIZE):
+#         for instance in query.paginate(page, PAGE_SIZE).iterator():
+#             ia = instance.instanceactions_set[0]
+#             iae =  ia.instanceactionsevents_set[0]
+#             event = {
+#                 'uuid': instance.uuid,
+#                 'vcpus': instance.vcpus,
+#                 'memory_mb': instance.memory_mb,
+#                 'root_gb': instance.root_gb,
+#                 'user_id': instance.user,
+#                 'project_id': instance.project,
+#                 'hostname': instance.hostname,
+#                 'host': instance.host,
 
-                'event': iae.event,
-                'result': iae.result,
-                'start_time': iae.start_time,
-                'finish_time': iae.finish_time,
-            }
-            yield event
+#                 'event': iae.event,
+#                 'result': iae.result,
+#                 'start_time': iae.start_time,
+#                 'finish_time': iae.finish_time,
+#             }
+#             yield event
