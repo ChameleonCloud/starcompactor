@@ -19,9 +19,11 @@ Python version of a Java program developed by Pankaj Saha ([Java version](https:
     is configurable. "all_tenants" may be configurable, and [viewing instance
     actions][api-actions] should be via `policy.json`.
 * `python -m starcompactor.api_dump dump.csv`
-
+* (JSON) `python -m starcompactor.api_dump --jsons [ --osrc admin-chi.tacc.rc ] out.jsons`
 
 ### via MySQL database access
+
+(unstable, code fragmented)
 
 * `pip install -r db-requirements.txt`
 * `python -m starcompactor.db_dump --help`
