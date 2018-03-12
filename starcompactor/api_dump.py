@@ -13,16 +13,10 @@ from .extractors import http
 from .formatters import csv, jsons
 from .transforms.derived import extra_times
 from .transforms.masker import mask_fields, Masker, MASKERS
+from .util import pipeline
 
 
 LOG = logging.getLogger(__name__)
-
-
-def pipeline(iterator, *callables):
-    for item in iterator:
-        for f in callables:
-            item = f(item)
-        yield item
 
 
 def main():

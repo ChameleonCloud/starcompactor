@@ -5,6 +5,7 @@ import logging
 
 LOG = logging.getLogger(__name__)
 
+__all__ = ['extra_times']
 
 def extra_times(trace, epoch):
     if trace['start_time']:

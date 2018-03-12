@@ -3,6 +3,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import os
 import hashlib
 
+__all__ = ['MASKED_FIELDS', 'MASKERS', 'Masker', 'mask_fields']
 
 MASKED_FIELDS = ['user_id', 'project_id', 'hostname', 'host']
 MASKERS = {
