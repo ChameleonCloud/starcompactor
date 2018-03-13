@@ -72,16 +72,16 @@ The tool requires read access to the `instances`, `instance_actions`, and `insta
 
 ## Data Masking
 
-Sensitive fields are masked by hashing the original information and a fixed (per-run) random salt that's discarded at the end of the trace generation.
+Sensitive fields are masked by hashing the original information and a secret that's discarded at the end of the trace generation.
 
 Specifically:
 
 ```python
 # program initialization
-salt = cryptographically_secure_random_bits(256)
+secret = cryptographically_secure_random_bits(256)
 
 # for each value to mask:
-masked_value = cryptographic_hash(salt + original_value)
+masked_value = cryptographic_hash(secret + original_value)
 ```
 
 ## Implementation Details
