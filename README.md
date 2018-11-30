@@ -22,7 +22,7 @@ The current version only supports direct DB dumps. The API dumps has requirement
     and currently the minimum version of [microversions] is 2.1.
     "all_tenants" may be configurable, and [viewing instance
     actions][api-actions] should be via `policy.json`.
-* `python -m starcompactor.api_dump --database nova dump.csv`
+* `python -m starcompactor.api_dump dump.csv`
 * (JSON) `python -m starcompactor.api_dump --jsons [ --osrc admin-chi.tacc.rc ] out.jsons`
 
 ### via MySQL database access
@@ -31,7 +31,7 @@ The current version only supports direct DB dumps. The API dumps has requirement
 
 * `pip install -r db-requirements.txt`
 * `python -m starcompactor.db_dump --help`
-* `python -m starcompactor.db_dump --host 127.0.0.1 --start 2017-08-01T00:00:00Z dump.csv`
+* `python -m starcompactor.db_dump --host 127.0.0.1 --start 2017-08-01T00:00:00Z --database nova dump.csv`
 
 The tool requires read access to the `instances`, `instance_actions`, and `instance_actions_events` tables in the Nova database. Events are currently not exposed by the HTTP API, so fetching them remotely is not currently possible.
 
