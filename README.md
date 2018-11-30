@@ -2,7 +2,9 @@
 
 Generate traces from a Nova (Blazar pending) installation for a source of a real workload.
 
-Python version of a Java program developed by Pankaj Saha ([Java version](https://bitbucket.org/psaha4/chameleon/src/cddb6aaa6ac4a348786b1408a63d28290b6a317a/openStack/src/main/java/extractor/Trace.java?at=master&fileviewer=file-view-default)). Only supports direct DB dumps.
+This is a Python version of a Java program developed by Pankaj Saha ([Java version](https://bitbucket.org/psaha4/chameleon/src/cddb6aaa6ac4a348786b1408a63d28290b6a317a/openStack/src/main/java/extractor/Trace.java?at=master&fileviewer=file-view-default)). 
+
+The current version only supports direct DB dumps. The API dumps has requirements of OpenStack Nova API version and configuration settings. 
 
 ## Quickstart
 
@@ -12,13 +14,15 @@ Python version of a Java program developed by Pankaj Saha ([Java version](https:
   * Requests and Dateutil. If you've installed any OS clients, they're probably
     already installed and you can skip this.
 * `python -m starcompactor.api_dump --help`
-* `source your/deployment/openrc`
+* `source your/deployment/openrc` (only supports Identity API v2.0)
   * The tool will read the `OS_*` env vars.
-  * For a full dump, the credentials loaded need to be high/admin-level. API
-    docs are unclear if [viewing deleted instances][api-instance-details]
-    is configurable. "all_tenants" may be configurable, and [viewing instance
+  * For a full dump, the credentials loaded need to be high/admin-level. 
+    It requires Nova API version greater than 2.1 for viewing deleted instances.
+    More specifically, action information of deleted instances can be returned for requests starting with microversion 2.21,
+    and currently the minimum version of [microversions] is 2.1.
+    "all_tenants" may be configurable, and [viewing instance
     actions][api-actions] should be via `policy.json`.
-* `python -m starcompactor.api_dump dump.csv`
+* `python -m starcompactor.api_dump --database nova dump.csv`
 * (JSON) `python -m starcompactor.api_dump --jsons [ --osrc admin-chi.tacc.rc ] out.jsons`
 
 ### via MySQL database access
@@ -86,7 +90,10 @@ masked_value = cryptographic_hash(secret + original_value)
 
 ## Implementation Details
 
-Requires
+The information of instances, instance actions, and instance action events is either fetched using Nova HTTP API requests or directly extracted from OpenStack Nova database.
+The information from three sections is merged into a compacted version and several derived fields are extracted/calculated. 
+
+Data masking is applied to `INSTANCE_UUID`, `INSTANCE_NAME`, `USER_ID`, `PROJECT_ID` and `HOST_NAME(PHYSICAL)`. 
 
 ## Name
 
@@ -98,3 +105,4 @@ From some mix of OpenStack's Nova, Blazar, me watching Crash Course Astronomy, a
 
 [api-actions]: https://developer.openstack.org/api-ref/compute/#list-actions-for-server
 [api-instance-details]: https://developer.openstack.org/api-ref/compute/#list-servers-detailed
+[microversions]: https://developer.openstack.org/api-guide/compute/microversions.html

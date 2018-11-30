@@ -124,7 +124,7 @@ class Auth(object):
         if missing_vars:
             raise RuntimeError('Missing required OS values: {}'.format(missing_vars))
 
-        self.region = self.rc.get('OS_REGION', None)
+        self.region = self.rc.get('OS_REGION_NAME', None)
         self.L.debug('region = "{}"'.format(self.region))
         self.v2endpoint = find_v2_endpoint(self.rc['OS_AUTH_URL'])
         self.L.debug('auth endpoint = "{}"'.format(self.v2endpoint))
