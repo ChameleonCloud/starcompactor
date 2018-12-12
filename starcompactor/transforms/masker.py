@@ -3,9 +3,10 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import os
 import hashlib
 
-__all__ = ['MASKED_FIELDS', 'MASKERS', 'Masker', 'mask_fields']
+__all__ = ['MASKED_FIELDS', 'MASKERS', 'Masker', 'mask_fields', 'ordered_mask']
 
-MASKED_FIELDS = ['user_id', 'project_id', 'hostname', 'host']
+MASKED_FIELDS = {'instance': ['uuid', 'user_id', 'project_id', 'hostname', 'host'],
+                 'machine': ['HOST_NAME (PHYSICAL)']}
 MASKERS = {
     'none': {'method': 'raw'}, # debugging
     'sha1-raw': {'method': 'sha1', 'salt': b''}, # legacy
@@ -45,10 +46,20 @@ class Masker:
         return h.hexdigest()[:self.truncate]
 
 
-def mask_fields(trace, masker):
-    for field in MASKED_FIELDS:
+def mask_fields(trace, trace_type, masker):
+    for field in MASKED_FIELDS[trace_type]:
         if trace[field]:
             trace[field] = masker(trace[field])
         else:
             trace[field] = ''
     return trace
+
+def ordered_mask(trace, field_name, ordered_list):
+    if trace[field_name]:
+        trace[field_name] = ordered_list.index(trace[field_name])
+        if trace[field_name] < 0: trace[field_name] = None
+    else:
+        trace[field_name] = None
+        
+    return trace
+    
