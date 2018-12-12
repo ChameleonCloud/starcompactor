@@ -1,2 +1,3 @@
 -r general-requirements.txt
 requests
+-e git+https://github.com/ChameleonCloud/hammers#egg=hammers

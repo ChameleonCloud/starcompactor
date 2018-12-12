@@ -5,7 +5,7 @@ import hashlib
 
 __all__ = ['MASKED_FIELDS', 'MASKERS', 'Masker', 'mask_fields', 'ordered_mask']
 
-MASKED_FIELDS = {'instance': ['uuid', 'user_id', 'project_id', 'hostname', 'host'],
+MASKED_FIELDS = {'instance': ['INSTANCE_UUID', 'USER_ID', 'PROJECT_ID', 'INSTANCE_NAME', 'HOST_NAME (PHYSICAL)'],
                  'machine': ['HOST_NAME (PHYSICAL)']}
 MASKERS = {
     'none': {'method': 'raw'}, # debugging
@@ -55,11 +55,12 @@ def mask_fields(trace, trace_type, masker):
     return trace
 
 def ordered_mask(trace, field_name, ordered_list):
-    if trace[field_name]:
-        trace[field_name] = ordered_list.index(trace[field_name])
-        if trace[field_name] < 0: trace[field_name] = None
-    else:
-        trace[field_name] = None
+    field_value = trace.setdefault(field_name, None)
+    if field_value:
+        try:
+            trace[field_name] = ordered_list.index(field_value)
+        except ValueError:
+            trace[field_name] = None
         
     return trace
     

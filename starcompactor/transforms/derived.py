@@ -8,23 +8,23 @@ LOG = logging.getLogger(__name__)
 __all__ = ['extra_times', 'machine_event_times']
 
 def extra_times(trace, epoch):
-    if trace['start_time']:
+    if trace['START_TIME']:
         # strange, but it's happening in the data...
-        trace['start_sec'] = (trace['start_time'] - epoch).total_seconds()
+        trace['START_SEC'] = (trace['START_TIME'] - epoch).total_seconds()
     else:
         LOG.debug('trace missing start_time')
-        trace['start_sec'] = None
+        trace['START_SEC'] = None
 
-    if trace['finish_time']:
-        trace['finish_sec'] = (trace['finish_time'] - epoch).total_seconds()
+    if trace['FINISH_TIME']:
+        trace['FINISH_SEC'] = (trace['FINISH_TIME'] - epoch).total_seconds()
     else:
         LOG.debug('trace missing finish_time')
-        trace['finish_sec'] = None
+        trace['FINISH_SEC'] = None
 
-    if trace['start_time'] and trace['finish_time']:
-        trace['duration'] = (trace['finish_time'] - trace['start_time']).total_seconds()
+    if trace['START_TIME'] and trace['FINISH_TIME']:
+        trace['EVENT_DURATION'] = (trace['FINISH_TIME'] - trace['START_TIME']).total_seconds()
     else:
-        trace['duration'] = None
+        trace['EVENT_DURATION'] = None
 
     return trace
 
