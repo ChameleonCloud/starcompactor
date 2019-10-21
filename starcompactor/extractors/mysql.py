@@ -26,6 +26,8 @@ def count_instances(db):
 
 
 def traces_query(db, start=None, end=None):
+    # instances that belong to admin are excluded.
+    # these instances were created before KVM site came alive for testing purposes.
     sql = '''
     SELECT
         i.uuid,
@@ -49,6 +51,10 @@ def traces_query(db, start=None, end=None):
         nova.instance_actions AS ia ON i.uuid = ia.instance_uuid
             JOIN
         nova.instance_actions_events AS iae ON ia.id = iae.action_id
+    WHERE
+        i.user_id != 'admin'
+        AND
+        i.project_id != 'admin'
     '''
 
     conditionals = []
@@ -61,7 +67,7 @@ def traces_query(db, start=None, end=None):
         params.append(end)
 
     if conditionals:
-        sql = '{} WHERE {}'.format(sql, ' AND '.join(conditionals))
+        sql = '{} AND {}'.format(sql, ' AND '.join(conditionals))
 
     sql += ' ORDER BY ia.created_at'
     return db.query(sql, args=params, limit=None)

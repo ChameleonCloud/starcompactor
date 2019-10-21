@@ -13,8 +13,9 @@ from dateutil.parser import parse as dateparse
 from . import transforms as trans
 from .extractors import mysql
 from .formatters import csv, jsons
-from .util import pipeline
+from .util import pipeline, Constants
 
+TRACE_TYPE = 'instance'
 
 LOG = logging.getLogger(__name__)
 
@@ -38,12 +39,15 @@ def main(argv):
         help='Database name')
     parser.add_argument('-s', '--start', type=str)
     parser.add_argument('-e', '--end', type=str)
-    parser.add_argument('-c', '--epoch', type=str, default='2015-09-06T23:31:16',
+    parser.add_argument('-c', '--epoch', type=str, default=Constants.CHAMELEON_KVM_START_DATE + 'T00:00:00',
         help='Time to compute relative dates from')
     parser.add_argument('-m', '--masking', type=str, default='sha2-salted',
         choices=trans.MASKERS,
         help='User data mask type. "sha1-raw" is legacy and not recommended as '
              'it is vulnerable to cracking. "none" is for debugging only.')
+    parser.add_argument('-t', '--salt', type=str, default=None,
+        help = 'Salt of hashed masking method. Please use the same salt for machine event host name! '
+               'Ignored if masking method is "none".')
     parser.add_argument('-j', '--jsons', action='store_true',
         help='Format output as one JSON per line (defaults to CSV-style)')
     parser.add_argument('-v', '--verbose',
@@ -60,22 +64,18 @@ def main(argv):
 
     start = dateparse(args.start) if args.start else None
     end = dateparse(args.end) if args.end else None
-    epoch = dateparse(args.epoch)
-
-    mask = trans.Masker(**trans.MASKERS[args.masking])
 
     args = parser.parse_args()
     if args.loglevel is None:
         args.loglevel = logging.WARNING
     logging.basicConfig(level=args.loglevel)
 
-    # start = dateparse(args.start) if args.start else None
-    # end = dateparse(args.end) if args.end else None
     epoch = dateparse(args.epoch)
     LOG.debug('epoch time: {}'.format(epoch))
 
     masker_config = trans.MASKERS[args.masking]
     LOG.debug('using masker options {}'.format(masker_config))
+    masker_config['salt'] = args.salt
     mask = trans.Masker(**masker_config)
 
     db = mysqlargs.connect(db=args.database)
@@ -86,18 +86,18 @@ def main(argv):
 
 
     traces = mysql.traces(db, start=start, end=end)
-    traces = pipeline(traces,
-        functools.partial(trans.mask_fields, masker=mask),
+    traces = pipeline(traces, 
+        functools.partial(trans.mask_fields, trace_type=TRACE_TYPE, masker=mask),
         functools.partial(trans.extra_times, epoch=epoch),
     )
 
-    traces = itertools.islice(traces, 20)
+    #traces = itertools.islice(traces, 20)
     if args.jsons:
         LOG.debug('writing JSONs to {}'.format(args.output_file))
-        jsons.write(args.output_file, traces)
+        jsons.write(args.output_file, traces, TRACE_TYPE)
     else:
         LOG.debug('writing CSV to {}'.format(args.output_file))
-        csv.write(args.output_file, traces)
+        csv.write(args.output_file, traces, TRACE_TYPE)
 
 
 if __name__ == '__main__':

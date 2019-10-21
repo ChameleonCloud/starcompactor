@@ -5,7 +5,7 @@ import logging
 
 LOG = logging.getLogger(__name__)
 
-__all__ = ['extra_times']
+__all__ = ['extra_times', 'machine_event_times']
 
 def extra_times(trace, epoch):
     if trace['start_time']:
@@ -26,4 +26,15 @@ def extra_times(trace, epoch):
     else:
         trace['duration'] = None
 
+    return trace
+
+def machine_event_times(trace, epoch):
+    if trace['EVENT_TIME']:
+        trace['EVENT_TIME_SEC'] = (trace['EVENT_TIME'] - epoch).total_seconds()
+        if trace['EVENT_TIME_SEC'] < 0:
+            trace['EVENT_TIME_SEC'] = -1
+    else:
+        LOG.debug('trace missing event_time')
+        trace['EVENT_TIME_SEC'] = None
+        
     return trace

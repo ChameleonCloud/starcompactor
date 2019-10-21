@@ -4,96 +4,78 @@ Generate traces from a Nova (Blazar pending) installation for a source of a real
 
 This is a Python version of a Java program developed by Pankaj Saha ([Java version](https://bitbucket.org/psaha4/chameleon/src/cddb6aaa6ac4a348786b1408a63d28290b6a317a/openStack/src/main/java/extractor/Trace.java?at=master&fileviewer=file-view-default)). 
 
-The current version only supports direct DB dumps. The API dumps has requirements of OpenStack Nova API version and configuration settings. 
+## Prerequisites
+* Create a mysql database user `cc_trace` with the following privileges:
 
-## Quickstart
-
-### via Nova's HTTP API
-
-* `pip install -r api-requirements.txt`
-  * Requests and Dateutil. If you've installed any OS clients, they're probably
-    already installed and you can skip this.
-* `python -m starcompactor.api_dump --help`
-* `source your/deployment/openrc` (only supports Identity API v2.0)
-  * The tool will read the `OS_*` env vars.
-  * For a full dump, the credentials loaded need to be high/admin-level. 
-    It requires Nova API version greater than 2.1 for viewing deleted instances.
-    More specifically, action information of deleted instances can be returned for requests starting with microversion 2.21,
-    and currently the minimum version of [microversions] is 2.1.
-    "all_tenants" may be configurable, and [viewing instance
-    actions][api-actions] should be via `policy.json`.
-* `python -m starcompactor.api_dump dump.csv`
-* (JSON) `python -m starcompactor.api_dump --jsons [ --osrc admin-chi.tacc.rc ] out.jsons`
-
-### via MySQL database access
-
-(unstable, code fragmented)
-
+	``GRANT SELECT, INSERT, CREATE, DROP, ALTER, LOCK TABLES ON `kvm_nova_backup\_%`.* TO 'cc_trace'@'%'``
+	
+	``GRANT SELECT ON `nova` TO 'cc_trace'@'%'``
+	
+* Python2
 * `pip install -r db-requirements.txt`
-* `python -m starcompactor.db_dump --help`
-* `python -m starcompactor.db_dump --host 127.0.0.1 --start 2017-08-01T00:00:00Z --database nova dump.csv`
 
-The tool requires read access to the `instances`, `instance_actions`, and `instance_actions_events` tables in the Nova database. Events are currently not exposed by the HTTP API, so fetching them remotely is not currently possible.
+## Instance Events
 
-## Trace Schema
+The instance events trace includes information about the instances, 
+such as the action (event) performed on an OpenStack instance, the event start time, the event end time, the result of the event, physical machine that hosting the instance, etc. 
+The instance events trace is extracted directly from the OpenStack Nova database. To generate instance event trace, run the following command: 
 
-### Instance fields
-
-* uuid (str): instance UUID from Nova
-
-* vcpus (str)
-* memory_mb (str)
-* root_gb (str)
-
-* user_id (str): masked
-* project_id (str): masked
-* hostname (str): user-defined hostname, masked
-* host (str): physical KVM host, masked
-
-### Instance Action fields
-
-(none)
-
-### Instance Action Event fields
-
-* event (str)
-* result (str)
-
-* start_time (str): ISO-8601 format
-* finish_time (str)
-
-### Derived fields
-
-* startSec (int): Dataset-relative epoch (or hard-coded to 2015-09-06 23:31:16)
-* finishSec (int)
-* duration (int): finish - start
-
-### Missing/Ignored fields
-
-* id (str): from instance_action table, should always equal the action_id
-* instance_uuid (str): from instance_action table, should always equal uuid
-* action_id (str): from instance_action_events
-
-## Data Masking
-
-Sensitive fields are masked by hashing the original information and a secret that's discarded at the end of the trace generation.
-
-Specifically:
-
-```python
-# program initialization
-secret = cryptographically_secure_random_bits(256)
-
-# for each value to mask:
-masked_value = cryptographic_hash(secret + original_value)
+```
+python -m starcompactor.db_dump --db-user cc_trace --password <cc_trace password> instance_events.csv
 ```
 
-## Implementation Details
+The script also allows to specify the mysql database host and port, epoch, output format, etc. Run the following to get more help:
 
-The information of instances, instance actions, and instance action events is either fetched using Nova HTTP API requests or directly extracted from OpenStack Nova database.
-The information from three sections is merged into a compacted version and several derived fields are extracted/calculated. 
+```
+python -m starcompactor.db_dump --help
+```
 
-Data masking is applied to `INSTANCE_UUID`, `INSTANCE_NAME`, `USER_ID`, `PROJECT_ID` and `HOST_NAME(PHYSICAL)`. 
+## Machine Events
+
+The machine events trace includes information about the physical hosts. Five types of events are recorded for each machine, including `CREATE`, `DELETE`, `UPDATE`, `ENABLE`, `DISABLE`. 
+The machine details recorded with the events are `RACK`, `VCPU_CAPACITY`, `MEMORY_CAPACITY_MB`, and `DISK_CAPACITY_GB`. 
+
+The machine events trace is extracted from OpenStack (nova) database backups. The script will sort the backup files by its latest modified date, 
+and assumes that the earlier the creation date the older the database backup file. Three backup file types are accepted - bz2, gz or plain text.
+
+To generate the machine events, you need to modify the `starcompactor.config` file first. We assume that the rack information can be extracted from the hypervisor host name.
+You can specify the `hypervisor_hostname_regex` and `rack_extract_group` parameters in the `starcompactor.config` file to tell the script how to parse the rack from the hypervisor host name.
+Otherwise, leave the parameters blank and the trace will have all zeros for the `RACK` column.
+
+To generate machine event trace, run the following command:
+
+```
+python -m starcompactor.machine_event_dump --db-user cc_trace --password <cc_trace_password> machine_events.csv
+```
+
+The script also allows to specify the mysql database host and port, epoch, output format, etc. Run the following to get more help:
+
+```
+python -m starcompactor.machine_event_dump --help
+```
+
+## Anonymization Techniques
+
+For confidentiality reasons, you can anonymize certain fields in the traces. We use two different analymization methods on different fields.
+
+### Hashed
+You can use keyed cryptographic hash to the fields `INSTANCE_UUID`, `INSTANCE_NAME`, `USER_ID`, `PROJECT_ID` and `HOST_NAME (PHYSICAL)`.
+The default hash method is `sha2-salted`, but you can choose `sha1-raw` or `none` (no masking) by specifying `--masking` parameter with `db_dump` (instance event) script
+and specifying `--hashed-masking-method` parameter with `machine_event_dump` (machine events)  script. 
+
+If you don't specify the hash salt, the script will generate one randomly. 
+To allow mutual reference between instance events and machine events, you need to apply the same hash key (salt) to the host name fields.
+Use `--salt` parameter with `db_dump` (instance_event) script and use `-hashed-masking-salt` parameter with `machine_event_dump` (machine events) script.
+
+### Ordered
+This technique is applied to RACK field in the machine events table. 
+The list of observed unique RACK values is sorted. 
+Then, we assigned sequential numbers starting with 0 to the items of the RACK list, and the observed values are mapped onto these numbers.
+
+## Science Clouds
+* For more details about trace format and masking techniques, please visit the [trace format page](https://scienceclouds.org/cloud-traces/cloud-trace-format/) at [scienceclouds.org](https://scienceclouds.org). 
+* For published Chameleon KVM traces, please visit the [cloud traces page](https://scienceclouds.org/cloud-traces/) at [scienceclouds.org](https://scienceclouds.org).
+* There are more published traces at [scienceclouds.org](https://scienceclouds.org/cloud-traces/)!
 
 ## Name
 
