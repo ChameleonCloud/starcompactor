@@ -1,64 +1,67 @@
 # coding: utf-8
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import csv
 import datetime
 import logging
 
+try:
+    import configparser # 3.x
+except ImportError:
+    from backports import configparser # 2.x 3rd party
+
 LOG = logging.getLogger(__name__)
 
+config = configparser.ConfigParser()
+config.read('starcompactor.config')
 
-CSV_INSTANCE_COLUMNS = [
-    ('uuid', 'INSTANCE_UUID'),
-    ('event', 'EVENT'),
-    ('start_time', 'START_TIME'),
-    ('start_sec', 'START_SEC'),
-    ('finish_time', 'FINISH_TIME'),
-    ('finish_sec', 'FINISH_SEC'),
-    ('duration', 'EVENT_DURATION'),
-    ('result', 'RESULT'),
-    ('memory_mb', 'MEMORY_MB'),
-    ('root_gb', 'DISK_GB'),
-    ('vcpus', 'VCPUS'),
-    ('hostname', 'INSTANCE_NAME'),
-    ('user_id', 'USER_ID'),
-    ('project_id', 'PROJECT_ID'),
-    ('host', 'HOST_NAME (PHYSICAL)'),
-]
-_CSV_INSTANCE_COL_MAP = dict(CSV_INSTANCE_COLUMNS)
-_CSV_INSTANCE_ORDER, _CSV_INSTANCE_HEADER = zip(*CSV_INSTANCE_COLUMNS)
+_CSV_INSTANCE_HEADER = ['INSTANCE_UUID',
+                        'EVENT',
+                        'START_TIME',
+                        'START_SEC',
+                        'FINISH_TIME',
+                        'FINISH_SEC',
+                        'EVENT_DURATION',
+                        'RESULT',
+                        'INSTANCE_NAME',
+                        'USER_ID',
+                        'PROJECT_ID',
+                        'HOST_NAME (PHYSICAL)',
+                        'PROPERTIES']
 
 _CSV_MACHINE_HEADER = ['EVENT_TIME', 
                        'EVENT_TIME_SEC', 
                        'HOST_NAME (PHYSICAL)', 
-                       'RACK', 
                        'EVENT',
-                       'VCPU_CAPACITY',
-                       'MEMORY_CAPACITY_MB',
-                       'DISK_CAPACITY_GB']
+                       'PROPERTIES']
+
+_CSV_PROPERTIES = {'instance': {'vm': ['memory_mb', 'root_gb', 'vcpus'], 'baremetal': []},
+                   'machine': {'vm': ['rack', 'vcpu_capability', 'memory_capability_mb', 'disk_capability_gb'],
+                               'baremetal': config.get('baremetal', 'properties').split(',')}}
 
 _HEADER = {'instance': _CSV_INSTANCE_HEADER,
            'machine': _CSV_MACHINE_HEADER}
 
-_ORDER = {'instance': _CSV_INSTANCE_ORDER,
-          'machine': _CSV_MACHINE_HEADER}
 
-
-def csv_row(event, trace_type):
-    for k in event:
+def csv_row(event, trace_type, instance_type):
+    properties = {}
+    for k in event.keys():
         if isinstance(event[k], datetime.datetime):
             event[k] = event[k].isoformat()
+        if k in _CSV_PROPERTIES[trace_type][instance_type]:
+            properties[k] = event[k]
+            del event[k]
+    event['PROPERTIES'] = properties
 
-    # guaranteed (if we're not using the raw masker...) there's no commas
-    # anywhere in the data?
-    return ','.join(str(event[k]) for k in _ORDER[trace_type])
+    return [str(event[k]) for k in _HEADER[trace_type]]
 
 
-def write(filename, traces, trace_type):
+def write(filename, traces, trace_type, instance_type):
     with open(filename, 'w') as f:
-        f.write(','.join(_HEADER[trace_type]) + '\n')
+        csvwriter = csv.writer(f, delimiter=b',', quotechar=b'"', quoting=csv.QUOTE_MINIMAL)
+        csvwriter.writerow(_HEADER[trace_type])
 
         for n, trace in enumerate(traces):
-            # print(trace)
-            line = csv_row(trace, trace_type)
+            line = csv_row(trace, trace_type, instance_type)
             LOG.info(line)
-            f.write(line + '\n')
+            csvwriter.writerow(line)

@@ -10,7 +10,10 @@ import re
 import sys
 import traceback
 
-import ConfigParser
+try:
+    import configparser # 3.x
+except ImportError:
+    from backports import configparser # 2.x 3rd party
 
 from dateutil.parser import parse as dateparse
 from os import listdir
@@ -19,7 +22,6 @@ from os.path import isfile, join
 from . import transforms as trans
 from .extractors import machine, mysql
 from .formatters import csv, jsons
-from .util import Constants
 
 TRACE_TYPE = 'machine'
 
@@ -27,7 +29,7 @@ LOG = logging.getLogger(__name__)
 
 def refine_machine_events(machine_events):
     # sort machine event keys (event_time, host, event_type) by host and event_time
-    sorted_key = sorted(machine_events.keys(), key=lambda x: (x[1], x[0]))
+    sorted_key = sorted(machine_events.keys(), key=lambda x: (x[1], x[0], x[2]))
     current_host = None
     prev_event = None
     prev_properties = None
@@ -77,12 +79,10 @@ def refine_machine_events(machine_events):
         if event_type == 'ENABLE': is_enabled = True
         if event_type == 'DISABLE': is_enabled = False
     
-    return machine_events  
+    return machine_events
 
-def mask_and_derive(machine_events, masker, epoch):
+def mask_and_derive(machine_events, masker, epoch, rack_property_name):
     traces = []
-    # ordered mask rack
-    ordered_racks = sorted(set([machine_events[k]['RACK'] for k in machine_events.keys()]))
     for key in machine_events.keys():
         trace = machine_events[key].copy()
         trace['EVENT_TIME'] = key[0]
@@ -90,19 +90,23 @@ def mask_and_derive(machine_events, masker, epoch):
         trace['EVENT'] = key[2]
         trace = trans.mask_fields(trace, TRACE_TYPE, masker)
         trace = trans.machine_event_times(trace, epoch)
-        trace = trans.ordered_mask(trace, 'RACK', ordered_racks) 
+        if rack_property_name:
+            trace = trans.ordered_mask(trace, rack_property_name, sorted(set([machine_events[k][rack_property_name] for k in machine_events.keys() if rack_property_name in machine_events[k]]))) 
         traces.append(trace) 
     
     return traces
 
 def get_machine_event_with_packed_args(args):
     try:
-        return machine.get_machine_event(*args)
+        return machine.get_machine_event(**args)
     except Exception as e:
         traceback.print_exc()
         raise e
     
 def main(argv):
+    config = configparser.ConfigParser()
+    config.read('starcompactor.config')
+    
     parser = argparse.ArgumentParser(description=__doc__)
     mysqlargs = mysql.MySqlArgs({
         'user': 'root',
@@ -111,22 +115,17 @@ def main(argv):
         'port': 3306,
     })
     mysqlargs.inject(parser)
-    parser.add_argument('-c', '--epoch', type=str, default=Constants.CHAMELEON_KVM_START_DATE + 'T00:00:00',
-        help='Time to compute relative dates from')
-    parser.add_argument('-m', '--hashed-masking-method', type=str, default='sha2-salted',
-        choices=trans.MASKERS,
-        help='Hashed mask method (for host name). "sha1-raw" is legacy and not recommended as '
-             'it is vulnerable to cracking. "none" is for debugging only.')
-    parser.add_argument('-s', '--hashed-masking-salt', type=str,
-        help = 'Salt of hashed masking method (for host name). Please use the same salt for instance event host name! '
-               'Ignored if host name mask type is "none".')
-    parser.add_argument('-j', '--jsons', action='store_true',
+    parser.add_argument('--hashed-masking-method', type=str, default='sha2-salted', choices=trans.MASKERS,
+        help='Hashed mask method (for host name). "sha1-raw" is legacy and not recommended as it is vulnerable to cracking. "none" is for debugging only.')
+    parser.add_argument('--hashed-masking-salt', type=str, default=None,
+        help = 'Salt of hashed masking method (for host name). Please use the same salt for instance event host name! Ignored if host name mask type is "none".')
+    parser.add_argument('--instance-type', type=str, default='vm', choices=['vm', 'baremetal'],
+        help='Type of the instance. Choose vm or baremetal')
+    parser.add_argument('--jsons', action='store_true',
         help='Format output as one JSON per line (defaults to CSV-style)')
-    parser.add_argument('-v', '--verbose',
-        action='store_const', const=logging.INFO, dest="loglevel",
+    parser.add_argument('--verbose', action='store_const', const=logging.INFO, dest="loglevel",
         help='Increase verbosity about the dump.')
-    parser.add_argument('--debug',
-        action='store_const', const=logging.DEBUG, dest="loglevel",
+    parser.add_argument('--debug', action='store_const', const=logging.DEBUG, dest="loglevel",
         help='Debug-level logging.')
     parser.add_argument('output_file', type=str,
         help='File to dump results')
@@ -138,37 +137,54 @@ def main(argv):
         args.loglevel = logging.WARNING
     logging.basicConfig(level=args.loglevel)
 
-    epoch = dateparse(args.epoch)
+    LOG.debug('instance type: {}'.format(args.instance_type))
+
+    epoch = dateparse(config.get('default', 'epoch'))
     LOG.debug('epoch time: {}'.format(epoch))
 
     # mask for host name
     masker_config = trans.MASKERS[args.hashed_masking_method]
     LOG.debug('using masker options {}'.format(masker_config))
-    if args.hashed_masking_method != "none":
-        if args.hashed_masking_salt is None:
-            raise ValueError('Salt for masking host name can not be None!')
-        masker_config['salt'] = args.hashed_masking_salt
+    masker_config['salt'] = args.hashed_masking_salt
     
     mask = trans.Masker(**masker_config)
 
-    config = ConfigParser.ConfigParser()
-    config.read('starcompactor.config')
     backup_dir = config.get('backup', 'backup_dir')
     backup_files = [join(backup_dir, f) for f in listdir(backup_dir) if isfile(join(backup_dir, f)) and re.match(config.get('backup', 'backup_file_regex'), f)]
     backup_files.sort(key=lambda x: os.path.getmtime(x))
-    rack_extractor = {'hypervisor_hostname_regex': config.get('rack', 'hypervisor_hostname_regex'), 'rack_extract_group': int(config.get('rack', 'rack_extract_group'))}
-    
+        
     machine_args = []
     process_no = 0
     for backup_file in backup_files:
-        machine_args.append([process_no, backup_file, mysqlargs.connect_kwargs, rack_extractor])  
+        arg = {'process_no': process_no,
+               'backup_file': backup_file, 
+               'mysql_args': mysqlargs.connect_kwargs, 
+               'instance_type': args.instance_type}
+        machine_args.append(arg)  
         process_no = process_no + 1
     
     with contextlib.closing(multiprocessing.Pool(processes=int(math.ceil(process_no / int(config.get('multithread', 'number_of_files_per_process')))))) as pool:
         process_results = pool.map(get_machine_event_with_packed_args, machine_args)
     
     machine_events = {}
-    # multiprocessing keeps the order; here we need to reverse the order for "CREATE" event
+    # multiprocessing keeps the order
+    # create DELETE events
+    prev_hosts = None
+    process_no = 0
+    for result in process_results:
+        if not result or 'hosts' not in result:
+            LOG.warn('missing result from process {}'.format(str(process_no)))
+            process_no = process_no + 1
+            continue
+        current_hosts = result['hosts']
+        if prev_hosts:
+            deleted_hosts = prev_hosts.difference(current_hosts)
+            for host in deleted_hosts:
+                machine_events[(result['file_time'], host, 'DELETE')] = {}
+        prev_hosts = current_hosts
+        process_no = process_no + 1
+    
+    # we need to reverse the order for "CREATE" event
     # so that we get the contents for create events from the earliest backup file.
     # Example:
     # In 2015-10-09 backup and for host x, "created_at" 2015-10-09 with 48 available VCPUs.
@@ -176,7 +192,8 @@ def main(argv):
     # For create event of host x, we choose the content from 2015-10-09 backup.
     process_results.reverse()
     for result in process_results:
-        machine_events.update(result)
+        if result and 'machine_events' in result:
+            machine_events.update(result['machine_events'])
         
     # refine machine events
     # 1. consecutive events with different timestamps but the same event type and properties is not valid; pick the earliest timestamp
@@ -186,14 +203,17 @@ def main(argv):
     refined_machine_events = refine_machine_events(machine_events)
     
     # mask and derive
-    traces = mask_and_derive(refined_machine_events, mask, epoch)
+    rack_property_name = (
+        config.get('baremetal', 'rack_property_name')
+        if args.instance_type == 'baremetal' else 'rack')
+    traces = mask_and_derive(refined_machine_events, mask, epoch, rack_property_name)
        
     if args.jsons:
         LOG.debug('writing JSONs to {}'.format(args.output_file))
-        jsons.write(args.output_file, traces, TRACE_TYPE)
+        jsons.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
     else:
         LOG.debug('writing CSV to {}'.format(args.output_file))
-        csv.write(args.output_file, traces, TRACE_TYPE)
+        csv.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
 
 
 if __name__ == '__main__':

@@ -1,31 +1,32 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
-import argparse
-import datetime
-import json
 import logging
-import sys
-
-from dateutil.parser import parse as dateparse
 
 from ._mysql import MyCnf, MySqlArgs, MySqlShim
 
 
 LOG = logging.getLogger(__name__)
 
+TRACE_EVENT_KEY_RENAME_MAP = {'uuid': 'INSTANCE_UUID',
+                              'event': 'EVENT',
+                              'start_time': 'START_TIME',
+                              'finish_time': 'FINISH_TIME',
+                              'result': 'RESULT',
+                              'hostname': 'INSTANCE_NAME',
+                              'user_id': 'USER_ID',
+                              'project_id': 'PROJECT_ID',
+                              'host': 'HOST_NAME (PHYSICAL)'}
 
-def count_instances(db):
+def count_instances(db, database_name):
     '''
     Connection test
     '''
     sql = '''
-    SELECT Count(*)
-    FROM   instances
-    -- WHERE  deleted='0';
-    '''
+    SELECT count(*) as cnt
+    FROM {database_name}.instances;
+    '''.format(database_name=database_name)
     return db.query(sql, limit=None)
 
-
-def traces_query(db, start=None, end=None):
+def traces_query(db, database_name, start=None, end=None):
     # instances that belong to admin are excluded.
     # these instances were created before KVM site came alive for testing purposes.
     sql = '''
@@ -38,24 +39,21 @@ def traces_query(db, start=None, end=None):
         i.project_id,
         i.hostname,
         i.host,
-        -- ia.created_at,
-        -- ia.id AS action_id,
-        -- iae.id AS event_id,
         iae.event,
         iae.result,
         iae.start_time,
         iae.finish_time
     FROM
-        nova.instances AS i
+        {database_name}.instances AS i
             JOIN
-        nova.instance_actions AS ia ON i.uuid = ia.instance_uuid
+        {database_name}.instance_actions AS ia ON i.uuid = ia.instance_uuid
             JOIN
-        nova.instance_actions_events AS iae ON ia.id = iae.action_id
+        {database_name}.instance_actions_events AS iae ON ia.id = iae.action_id
     WHERE
         i.user_id != 'admin'
         AND
         i.project_id != 'admin'
-    '''
+    '''.format(database_name=database_name)
 
     conditionals = []
     params = []
@@ -69,15 +67,15 @@ def traces_query(db, start=None, end=None):
     if conditionals:
         sql = '{} AND {}'.format(sql, ' AND '.join(conditionals))
 
-    sql += ' ORDER BY ia.created_at'
     return db.query(sql, args=params, limit=None)
 
-
-def traces(db, start=None, end=None):
-    results = traces_query(db, start, end)
+def traces(db, database, start=None, end=None):
+    results = traces_query(db, database, start, end)
 
     for event in results:
-        if event['finish_time'] is None:
+        for key in event:
+            if key in TRACE_EVENT_KEY_RENAME_MAP.keys(): event[TRACE_EVENT_KEY_RENAME_MAP[key]] = event.pop(key)
+        if not event['FINISH_TIME']:
             LOG.debug('Invalid event %s', event)
             continue
 
