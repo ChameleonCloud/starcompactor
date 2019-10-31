@@ -6,50 +6,62 @@ This Python program is developed based on a Java program developed by Pankaj Sah
 
 ## Prerequisites
 * Create a mysql database user `cc_trace` with the following privileges:
-	
-	``GRANT SELECT, INSERT, CREATE, DROP, ALTER, LOCK TABLES ON `baremetal_ironic_backup\_%`.* TO 'cc_trace'@'%'``
-	
-	``GRANT SELECT, INSERT, CREATE, DROP, ALTER, LOCK TABLES ON `baremetal_blazar_backup\_%`.* TO 'cc_trace'@'%'``
-	
-	``GRANT SELECT, INSERT, CREATE, DROP, ALTER, LOCK TABLES ON `kvm\_%_backup\_%`.* TO 'cc_trace'@'%'``
-	
-	``GRANT SELECT ON `nova%`.* TO 'cc_trace'@'%'``
+
+```
+GRANT SELECT, INSERT, CREATE, DROP, ALTER, LOCK TABLES ON `baremetal_ironic_backup\_%`.* TO 'cc_trace'@'%'
+GRANT SELECT, INSERT, CREATE, DROP, ALTER, LOCK TABLES ON `baremetal_blazar_backup\_%`.* TO 'cc_trace'@'%'
+GRANT SELECT, INSERT, CREATE, DROP, ALTER, LOCK TABLES ON `kvm\_%_backup\_%`.* TO 'cc_trace'@'%'
+GRANT SELECT ON `nova%`.* TO 'cc_trace'@'%'
+```
 	
 * Install required python packages using command `pip install -r db-requirements.txt`
 
 * Modify `starcompactor.config` file
 
 ```
-	[default]
-	epoch # epoch time used to calculate the time difference between the event time and the epoch time
-	nova_databases # if you use OpenStack Nova Cells, list all cell databases here
+[default]
+# epoch time used to calculate the time difference between the event time and the epoch time
+epoch 
+# if you use OpenStack Nova Cells, list all cell databases here
+nova_databases 
+
+[baremetal]
+# baremetal traces related parameters
+
+# comma separated node properties you'd like to include in the machine event trace. 
+# i.e. the capabilities names from blazar.computehost_extra_capabilities.
+properties 
+# if you have rack information as one of the node properties, please indicate the name of the rack property. 
+# it is used for anonymizing rack information. otherwise, leave blank.
+rack_property_name 
 	
-	[baremetal]
-	# baremetal traces related parameters
-	properties # comma separated node properties you'd like to included in the machine event trace. 
-			   # i.e. the capabilities names from blazar.computehost_extra_capabilities.
-	rack_property_name # if you have rack information as one of the node properties, please indicate the name of the rack property. 
-					   # it is used for anonymizing rack infomation. otherwise, leave blank.
+[backup]
+# machine events are read from backups. use this section to indicate the backup information
+
+# the directory of the backup files
+backup_dir
+# regex to match backup files. if all files under the backup dir, put *.
+backup_file_regex
+# the script uses backup file name as the tmp database name. 
+# if the file name is too long, it may cause error when creating tmp databases. 
+# use this parameter to tell how many leading characters can be truncated from the file name.
+# note: the tmp database name has to be unique.
+backup_file_reducable_prefix_len
+# same purpose as backup_file_reducable_prefix_len, but used to truncate the tailing characters.
+backup_file_reducable_suffix_len
 	
-	[backup]
-	# machine events are read from backups. use this section to indicate the backup information
-	backup_dir # the directory of the backup files
-	backup_file_regex # regex to match backup files. if all files under the backup dir, put *.
-	backup_file_reducable_prefix_len # the script uses backup file name as the tmp database name. 
-								     # if the file name is too long, it may cause error when creating tmp databases. 
-								     # use this parameter to tell how many leading characters can be truncated from the file name.
-								     # note: the tmp database name has to be unique.
-	backup_file_reducable_suffix_len # same purpose as backup_file_reducable_prefix_len, but used to truncate the tailing characters.
+[kvm]
+# kvm traces related parameters
+
+# rack information is extracted from hypervisor_hostname. 
+# combine with rack_extract_group parameter to extract rack information.
+hypervisor_hostname_regex
+rack_extract_group
 	
-	[kvm]
-	# kvm traces related parameters
-	hypervisor_hostname_regex # rack information is extracted from hypervisor_hostname. 
-							  # combine with rack_extract_group parameter to extract rack information.
-	rack_extract_group
-	
-	[multithread]
-	number_of_files_per_process # machine events is extracted using multithreading.
-								# tune this parameter to adjust the number of threads and the number of files per thread
+[multithread]
+# machine events is extracted using multithreading.
+# tune this parameter to adjust the number of threads and the number of files per thread
+number_of_files_per_process
 ```
 
 * Supported python version -- Python 2 and 3
@@ -126,7 +138,7 @@ The default hash method is `sha2-salted`, but you can choose `sha1-raw` or `none
 
 If you don't specify the hash salt, the script will generate one randomly. 
 To allow mutual reference between instance events and machine events, you need to apply the same hash key (salt) to the host name fields.
-Use `-hashed-masking-salt` parameter to apply a hash key for masking.
+Use `--hashed-masking-salt` parameter to apply a hash key for masking.
 
 ### Ordered
 This technique is applied to the RACK property in the machine events table. 
