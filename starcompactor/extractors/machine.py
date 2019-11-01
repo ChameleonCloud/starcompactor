@@ -1,6 +1,7 @@
 # coding: utf-8
 from __future__ import absolute_import, division, print_function
 import bz2
+import datetime
 import gzip
 import logging
 import os
@@ -66,7 +67,7 @@ def get_machine_event(process_no, backup_file, mysql_args, instance_type):
     
     shutil.rmtree(tmp_path) 
     
-    return {'machine_events': machine_events, 'hosts': hosts, 'file_time': os.path.getmtime(backup_file)}
+    return {'machine_events': machine_events, 'hosts': hosts, 'file_time': datetime.datetime.fromtimestamp(os.path.getmtime(backup_file))}
 
 def get_machine_event_baremetal(mysql_args, tmp_path, tmp_sql_file_name):
     machine_events = {} # key is tuple (event_time, host_name, event)
