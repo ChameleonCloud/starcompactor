@@ -1,22 +1,12 @@
 # coding: utf-8
 # MySQL helpers lifted from https://github.com/ChameleonCloud/hammers
-from __future__ import absolute_import, print_function, unicode_literals
 import itertools
 import codecs
 import glob
 import logging
 import os
 import stat
-CP_MODERN = True
-try:
-    import configparser
-except ImportError:
-    try:
-        from backports import configparser
-    except ImportError:
-        import io
-        import ConfigParser as configparser
-        CP_MODERN = False
+import configparser
 
 KEYERROR_LIKE_OPTIONERRORS = (
     configparser.NoSectionError,
@@ -107,24 +97,14 @@ class MyCnf(object):
             self.read_file(path)
 
     def read_file(self, path):
-        if CP_MODERN:
-            self.cp.read_file(self.read(path))
-        else:
-            buf = io.StringIO('\n'.join(self.read(path)))
-            self.cp.readfp(buf)
+        self.cp.read_file(self.read(path))
 
     def __iter__(self):
-        if CP_MODERN:
-            return iter(self.cp)
-        else:
-            return iter(['DEFAULT'] + self.cp.sections())
+        return iter(self.cp)
 
     def __getitem__(self, key):
         try:
-            if CP_MODERN:
-                d = dict(self.cp[key])
-            else:
-                d = dict(self.cp.items(key))
+            d = dict(self.cp[key])
         except KEYERROR_LIKE_OPTIONERRORS as e:
             raise KeyError(str(e))
 
