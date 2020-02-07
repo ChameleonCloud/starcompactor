@@ -1,6 +1,6 @@
 # coding: utf-8
-from __future__ import absolute_import, division, print_function
 import bz2
+import configparser
 import datetime
 import gzip
 import logging
@@ -9,11 +9,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-
-try:
-    import configparser # 3.x
-except ImportError:
-    from backports import configparser # 2.x 3rd party
 
 from . import mysql
 
@@ -50,9 +45,8 @@ def get_machine_event(process_no, backup_file, mysql_args, instance_type):
     
     try:
         with open_by_suffix(backup_file) as f_in:
-            filedata = f_in.read()
-            with open(os.path.join(tmp_path, tmp_sql_file_name), 'w') as f_out:
-                f_out.write(filedata)
+            with open(os.path.join(tmp_path, tmp_sql_file_name), 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
     except:
         LOG.exception("Failed to read {}".format(backup_file))
         shutil.rmtree(tmp_path) 
@@ -93,19 +87,19 @@ def get_machine_event_baremetal(mysql_args, tmp_path, tmp_sql_file_name):
     tmp_ironic_node_table_sql_file_name = 'ironic_nodes_{}'.format(tmp_sql_file_name)
     process_extract_node_table = subprocess.Popen("sed -n -e '/DROP TABLE.*`nodes`/,/UNLOCK TABLES/p' {} > {}".format(os.path.join(tmp_path, tmp_ironic_database_sql_file_name), os.path.join(tmp_path, tmp_ironic_node_table_sql_file_name)), shell=True)
     process_extract_node_table.wait()
-    process_ironic = subprocess.Popen('mysql --user={} --password={} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], ironic_tmp_database_name, os.path.join(tmp_path, tmp_ironic_node_table_sql_file_name)), shell=True)
+    process_ironic = subprocess.Popen('mysql --user={} --password={} --host {} --port {} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], mysql_args['host'], mysql_args['port'], ironic_tmp_database_name, os.path.join(tmp_path, tmp_ironic_node_table_sql_file_name)), shell=True)
     process_ironic.wait()
     
     tmp_blazar_computehosts_table_sql_file_name = 'blazar_computehosts_{}'.format(tmp_sql_file_name)
     process_extract_computehosts_table = subprocess.Popen("sed -n -e '/DROP TABLE.*`computehosts`/,/UNLOCK TABLES/p' {} > {}".format(os.path.join(tmp_path, tmp_blazar_database_sql_file_name), os.path.join(tmp_path, tmp_blazar_computehosts_table_sql_file_name)), shell=True)
     process_extract_computehosts_table.wait()
-    process_blazar = subprocess.Popen('mysql --user={} --password={} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], blazar_tmp_database_name, os.path.join(tmp_path, tmp_blazar_computehosts_table_sql_file_name)), shell=True)
+    process_blazar = subprocess.Popen('mysql --user={} --password={} --host {} --port {} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], mysql_args['host'], mysql_args['port'], blazar_tmp_database_name, os.path.join(tmp_path, tmp_blazar_computehosts_table_sql_file_name)), shell=True)
     process_blazar.wait()
     
     tmp_blazar_computehost_extra_capabilities_table_sql_file_name = 'blazar_computehost_extra_capabilities_{}'.format(tmp_sql_file_name)
     process_extract_computehost_extra_capabilities_table = subprocess.Popen("sed -n -e '/DROP TABLE.*`computehost_extra_capabilities`/,/UNLOCK TABLES/p' {} > {}".format(os.path.join(tmp_path, tmp_blazar_database_sql_file_name), os.path.join(tmp_path, tmp_blazar_computehost_extra_capabilities_table_sql_file_name)), shell=True)
     process_extract_computehost_extra_capabilities_table.wait()
-    process_blazar = subprocess.Popen('mysql --user={} --password={} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], blazar_tmp_database_name, os.path.join(tmp_path, tmp_blazar_computehost_extra_capabilities_table_sql_file_name)), shell=True)
+    process_blazar = subprocess.Popen('mysql --user={} --password={} --host {} --port {} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], mysql_args['host'], mysql_args['port'], blazar_tmp_database_name, os.path.join(tmp_path, tmp_blazar_computehost_extra_capabilities_table_sql_file_name)), shell=True)
     process_blazar.wait()
     
     extract_data_sql = '''
@@ -191,7 +185,7 @@ def get_machine_event_vm(mysql_args, tmp_path, tmp_sql_file_name):
             tmp_table_sql_file_name = '{}_{}'.format(table, tmp_sql_file_name)
             process_extract_table = subprocess.Popen("sed -n -e '/DROP TABLE.*`{}`/,/UNLOCK TABLES/p' {} > {}".format(table, os.path.join(tmp_path, tmp_database_sql_file_name), os.path.join(tmp_path, tmp_table_sql_file_name)), shell=True)
             process_extract_table.wait()
-            process_nova = subprocess.Popen('mysql --user={} --password={} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], nova_tmp_database_name, os.path.join(tmp_path, tmp_table_sql_file_name)), shell=True)
+            process_nova = subprocess.Popen('mysql --user={} --password={} --host {} --port {} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], mysql_args['host'], mysql_args['port'], nova_tmp_database_name, os.path.join(tmp_path, tmp_table_sql_file_name)), shell=True)
             process_nova.wait()
         
         extract_data_sql = '''

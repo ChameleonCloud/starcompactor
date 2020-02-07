@@ -1,12 +1,11 @@
 # coding: utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
 import argparse
 import datetime
 import functools
 import logging
 import sys
 
-import ConfigParser
+import configparser
 
 from dateutil.parser import parse as dateparse
 
@@ -26,7 +25,7 @@ def datetime_serializer(obj):
 
 
 def main(argv):
-    config = ConfigParser.ConfigParser()
+    config = configparser.ConfigParser()
     config.read('starcompactor.config')
     
     parser = argparse.ArgumentParser(description=__doc__)

@@ -1,5 +1,4 @@
 # coding: utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
 import argparse
 # import datetime
 import functools
@@ -7,7 +6,7 @@ import itertools
 import logging
 import sys
 
-import ConfigParser
+import configparser
 
 from dateutil.parser import parse as dateparse
 from hammers.osapi import Auth
@@ -22,7 +21,7 @@ TRACE_TYPE = 'instance'
 LOG = logging.getLogger(__name__)
 
 def main():
-    config = ConfigParser.ConfigParser()
+    config = configparser.ConfigParser()
     config.read('starcompactor.config')
     
     parser = argparse.ArgumentParser(description=__doc__)

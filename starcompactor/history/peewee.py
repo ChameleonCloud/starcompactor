@@ -3,7 +3,6 @@ Trying to use the peewee ORM, but it's giving slow performance with the
 large queries, plus I can't figure out how to do a query with a couple
 JOINs and get data from multiple tables at once...
 """
-from __future__ import absolute_import, division, print_function, unicode_literals
 import argparse
 import sys
 

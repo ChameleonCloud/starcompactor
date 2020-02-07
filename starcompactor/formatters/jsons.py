@@ -1,14 +1,8 @@
 # coding: utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
-
+import configparser
 import datetime
 import json
 import logging
-
-try:
-    import configparser # 3.x
-except ImportError:
-    from backports import configparser # 2.x 3rd party
 
 LOG = logging.getLogger(__name__)
 
@@ -29,7 +23,7 @@ def write(filename, events, trace_type, instance_type):
     with open(filename, 'w') as f:
         for event in events:
             properties = {}
-            for k in event.keys():
+            for k in list(event.keys()):
                 if k in _CSV_PROPERTIES[trace_type][instance_type]:
                     properties[k] = event[k]
                     del event[k]

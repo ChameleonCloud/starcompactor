@@ -1,14 +1,8 @@
 # coding: utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
-
+import configparser
 import csv
 import datetime
 import logging
-
-try:
-    import configparser # 3.x
-except ImportError:
-    from backports import configparser # 2.x 3rd party
 
 LOG = logging.getLogger(__name__)
 
@@ -45,7 +39,7 @@ _HEADER = {'instance': _CSV_INSTANCE_HEADER,
 
 def csv_row(event, trace_type, instance_type):
     properties = {}
-    for k in event.keys():
+    for k in list(event.keys()):
         if isinstance(event[k], datetime.datetime):
             event[k] = event[k].isoformat()
         if k in _CSV_PROPERTIES[trace_type][instance_type]:
@@ -58,7 +52,7 @@ def csv_row(event, trace_type, instance_type):
 
 def write(filename, traces, trace_type, instance_type):
     with open(filename, 'w') as f:
-        csvwriter = csv.writer(f, delimiter=b',', quotechar=b'"', quoting=csv.QUOTE_MINIMAL)
+        csvwriter = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csvwriter.writerow(_HEADER[trace_type])
 
         for n, trace in enumerate(traces):

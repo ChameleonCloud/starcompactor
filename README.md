@@ -64,7 +64,7 @@ rack_extract_group
 number_of_files_per_process
 ```
 
-* Supported python version -- Python 2 and 3
+* Supported python version -- Python 3
 
 ## Instance Events
 

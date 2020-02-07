@@ -1,6 +1,6 @@
 # coding: utf-8
-from __future__ import absolute_import, division, print_function, unicode_literals
 import argparse
+import configparser
 import contextlib
 import logging
 import math
@@ -9,11 +9,6 @@ import os
 import re
 import sys
 import traceback
-
-try:
-    import configparser # 3.x
-except ImportError:
-    from backports import configparser # 2.x 3rd party
 
 from dateutil.parser import parse as dateparse
 from os import listdir
