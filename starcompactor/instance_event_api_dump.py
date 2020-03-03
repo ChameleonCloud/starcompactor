@@ -11,7 +11,7 @@ import configparser
 from dateutil.parser import parse as dateparse
 from hammers.osapi import Auth
 from .extractors import http
-from .formatters import csv, jsons
+from .formatters import csv_formatter, jsons
 from .transforms.derived import extra_times
 from .transforms.masker import mask_fields, Masker, MASKERS
 from .util import pipeline
@@ -71,7 +71,7 @@ def main():
         jsons.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
     else:
         LOG.debug('writing CSV to {}'.format(args.output_file))
-        csv.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
+        csv_formatter.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
 
 
 if __name__ == '__main__':
