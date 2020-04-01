@@ -16,7 +16,7 @@ from os.path import isfile, join
 
 from . import transforms as trans
 from .extractors import machine, mysql
-from .formatters import csv, jsons
+from .formatters import csv_formatter, jsons
 
 TRACE_TYPE = 'machine'
 
@@ -208,7 +208,7 @@ def main(argv):
         jsons.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
     else:
         LOG.debug('writing CSV to {}'.format(args.output_file))
-        csv.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
+        csv_formatter.write(args.output_file, traces, TRACE_TYPE, args.instance_type)
 
 
 if __name__ == '__main__':
