@@ -102,19 +102,41 @@ def get_machine_event_baremetal(mysql_args, tmp_path, tmp_sql_file_name):
     process_blazar = subprocess.Popen('mysql --user={} --password={} --host {} --port {} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], mysql_args['host'], mysql_args['port'], blazar_tmp_database_name, os.path.join(tmp_path, tmp_blazar_computehost_extra_capabilities_table_sql_file_name)), shell=True)
     process_blazar.wait()
     
-    extract_data_sql = '''
-                       SELECT c.created_at AS create_date, e.created_at, e.updated_at, i.updated_at, i.uuid AS node_id, i.maintenance, e.capability_name, e.capability_value
-                       FROM {ironic_database_name}.nodes AS i
-                       JOIN {blazar_database_name}.computehosts AS c ON i.uuid = c.hypervisor_hostname
-                       JOIN {blazar_database_name}.computehost_extra_capabilities AS e ON e.computehost_id = c.id
-                       WHERE capability_name IN ({properties})
-                       ORDER BY node_id
-                       '''.format(ironic_database_name=ironic_tmp_database_name, 
-                                  blazar_database_name=blazar_tmp_database_name, 
-                                  properties=','.join("'{}'".format(p) for p in BAREMETAL_PROPERTIES))
+    tmp_blazar_extra_capabilities_table_sql_file_name = 'blazar_extra_capabilities_{}'.format(tmp_sql_file_name)
+    process_extract_extra_capabilities_table = subprocess.Popen("sed -n -e '/DROP TABLE.*`extra_capabilities`/,/UNLOCK TABLES/p' {} > {}".format(os.path.join(tmp_path, tmp_blazar_database_sql_file_name), os.path.join(tmp_path, tmp_blazar_extra_capabilities_table_sql_file_name)), shell=True)
+    process_extract_extra_capabilities_table.wait()
+    process_blazar = subprocess.Popen('mysql --user={} --password={} --host {} --port {} --init-command="SET SESSION FOREIGN_KEY_CHECKS=0;" --one-database {} < {}'.format(mysql_args['user'], mysql_args['passwd'], mysql_args['host'], mysql_args['port'], blazar_tmp_database_name, os.path.join(tmp_path, tmp_blazar_extra_capabilities_table_sql_file_name)), shell=True)
+    process_blazar.wait()
+    
+    extract_data_sql_old = '''
+                           SELECT c.created_at AS create_date, e.created_at, e.updated_at, i.updated_at, i.uuid AS node_id, i.maintenance, e.capability_name, e.capability_value
+                           FROM {ironic_database_name}.nodes AS i
+                           JOIN {blazar_database_name}.computehosts AS c ON i.uuid = c.hypervisor_hostname
+                           JOIN {blazar_database_name}.computehost_extra_capabilities AS e ON e.computehost_id = c.id
+                           WHERE capability_name IN ({properties})
+                           ORDER BY node_id
+                           '''.format(ironic_database_name=ironic_tmp_database_name, 
+                                      blazar_database_name=blazar_tmp_database_name, 
+                                      properties=','.join("'{}'".format(p) for p in BAREMETAL_PROPERTIES))
+                           
+    extract_data_sql_new = '''
+                           SELECT c.created_at AS create_date, ce.created_at, ce.updated_at, i.updated_at, i.uuid AS node_id, i.maintenance, e.capability_name, ce.capability_value
+                           FROM {ironic_database_name}.nodes AS i
+                           JOIN {blazar_database_name}.computehosts AS c ON i.uuid = c.hypervisor_hostname
+                           JOIN {blazar_database_name}.computehost_extra_capabilities AS ce ON ce.computehost_id = c.id
+                           JOIN {blazar_database_name}.extra_capabilities AS e ON e.id = ce.capability_id
+                           WHERE capability_name IN ({properties})
+                           ORDER BY node_id
+                           '''.format(ironic_database_name=ironic_tmp_database_name, 
+                                      blazar_database_name=blazar_tmp_database_name, 
+                                      properties=','.join("'{}'".format(p) for p in BAREMETAL_PROPERTIES))
+    
                        
     try:
-        db.cursor.execute(extract_data_sql)
+        try:
+            db.cursor.execute(extract_data_sql_old)
+        except:
+            db.cursor.execute(extract_data_sql_new)
         prev_node = None
         prev_create_time = None
         property_update_times = []

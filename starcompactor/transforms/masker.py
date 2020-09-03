@@ -40,7 +40,7 @@ class Masker:
     def __call__(self, data):
         if self.method == 'raw':
             return data[:self.truncate]
-        h = hashlib.new(self.method, self.salt)
+        h = hashlib.new(self.method, self.salt.encode('utf-8'))
         h.update(data.encode('utf-8'))
         return h.hexdigest()[:self.truncate]
 
