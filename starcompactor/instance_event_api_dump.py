@@ -9,7 +9,7 @@ import sys
 import configparser
 
 from dateutil.parser import parse as dateparse
-from hammers.osapi import Auth
+import openstack
 from .extractors import http
 from .formatters import csv_formatter, jsons
 from .transforms.derived import extra_times
@@ -34,8 +34,8 @@ def main():
         help='Type of the instance. Choose vm or baremetal')
     parser.add_argument('--jsons', action='store_true',
         help='Format output as one JSON per line (defaults to CSV-style). Note that the file itself is *not* a JSON; read line-by-line and append them to an array for a proper JSON.')
-    parser.add_argument('--osrc', type=str,
-        help='RC file containing OS envvars.')
+    parser.add_argument('--os-cloud', type=str, default=None,
+        help='OpenStack cloud name from clouds.yaml to connect to.')
     parser.add_argument('--verbose', action='store_const', const=logging.INFO, dest="loglevel",
         help='Increase verbosity about the dump.')
     parser.add_argument('--debug', action='store_const', const=logging.DEBUG, dest="loglevel",
@@ -58,9 +58,9 @@ def main():
     masker_config['salt'] = args.hashed_masking_salt
     mask = Masker(**masker_config)
 
-    auth = Auth.from_env_or_args(env=True, args=args)
+    conn = openstack.connect(cloud=args.os_cloud)
 
-    traces = http.traces(auth)
+    traces = http.traces(conn)
     traces = pipeline(traces,
         functools.partial(mask_fields, trace_type=TRACE_TYPE, masker=mask),
         functools.partial(extra_times, epoch=epoch),
