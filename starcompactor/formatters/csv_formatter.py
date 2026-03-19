@@ -57,5 +57,4 @@ def write(filename, traces, trace_type, instance_type):
 
         for n, trace in enumerate(traces):
             line = csv_row(trace, trace_type, instance_type)
-            LOG.info(line)
             csvwriter.writerow(line)
