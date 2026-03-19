@@ -116,6 +116,8 @@ def main(argv):
         help = 'Salt of hashed masking method (for host name). Please use the same salt for instance event host name! Ignored if host name mask type is "none".')
     parser.add_argument('--instance-type', type=str, default='vm', choices=['vm', 'baremetal'],
         help='Type of the instance. Choose vm or baremetal')
+    parser.add_argument('--use-parquet', action='store_true',
+        help='Use parquet audit files in data/ instead of daily mysql dumps')
     parser.add_argument('--jsons', action='store_true',
         help='Format output as one JSON per line (defaults to CSV-style)')
     parser.add_argument('--verbose', action='store_const', const=logging.INFO, dest="loglevel",
@@ -144,51 +146,55 @@ def main(argv):
     
     mask = trans.Masker(**masker_config)
 
-    backup_dir = config.get('backup', 'backup_dir')
-    backup_files = [join(backup_dir, f) for f in listdir(backup_dir) if isfile(join(backup_dir, f)) and re.match(config.get('backup', 'backup_file_regex'), f)]
-    backup_files.sort(key=lambda x: os.path.getmtime(x))
-        
-    machine_args = []
-    process_no = 0
-    for backup_file in backup_files:
-        arg = {'process_no': process_no,
-               'backup_file': backup_file, 
-               'mysql_args': mysqlargs.connect_kwargs, 
-               'instance_type': args.instance_type}
-        machine_args.append(arg)  
-        process_no = process_no + 1
-    
-    with contextlib.closing(multiprocessing.Pool(processes=int(math.ceil(process_no / int(config.get('multithread', 'number_of_files_per_process')))))) as pool:
-        process_results = pool.map(get_machine_event_with_packed_args, machine_args)
-    
-    machine_events = {}
-    # multiprocessing keeps the order
-    # create DELETE events
-    prev_hosts = None
-    process_no = 0
-    for result in process_results:
-        if not result or 'hosts' not in result:
-            LOG.warn('missing result from process {}'.format(str(process_no)))
+    if args.use_parquet and args.instance_type == 'vm':
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+        machine_events, _ = machine.get_machine_events_from_parquet_vm(data_dir)
+    else:
+        backup_dir = config.get('backup', 'backup_dir')
+        backup_files = [join(backup_dir, f) for f in listdir(backup_dir) if isfile(join(backup_dir, f)) and re.match(config.get('backup', 'backup_file_regex'), f)]
+        backup_files.sort(key=lambda x: os.path.getmtime(x))
+            
+        machine_args = []
+        process_no = 0
+        for backup_file in backup_files:
+            arg = {'process_no': process_no,
+                   'backup_file': backup_file, 
+                   'mysql_args': mysqlargs.connect_kwargs, 
+                   'instance_type': args.instance_type}
+            machine_args.append(arg)  
             process_no = process_no + 1
-            continue
-        current_hosts = result['hosts']
-        if prev_hosts:
-            deleted_hosts = prev_hosts.difference(current_hosts)
-            for host in deleted_hosts:
-                machine_events[(result['file_time'], host, 'DELETE')] = {}
-        prev_hosts = current_hosts
-        process_no = process_no + 1
-    
-    # we need to reverse the order for "CREATE" event
-    # so that we get the contents for create events from the earliest backup file.
-    # Example:
-    # In 2015-10-09 backup and for host x, "created_at" 2015-10-09 with 48 available VCPUs.
-    # In 2017-11-01 backup and for host x, "created_at" 2015-10-09 with 40 available VCPUs.
-    # For create event of host x, we choose the content from 2015-10-09 backup.
-    process_results.reverse()
-    for result in process_results:
-        if result and 'machine_events' in result:
-            machine_events.update(result['machine_events'])
+        
+        with contextlib.closing(multiprocessing.Pool(processes=int(math.ceil(process_no / int(config.get('multithread', 'number_of_files_per_process')))))) as pool:
+            process_results = pool.map(get_machine_event_with_packed_args, machine_args)
+        
+        machine_events = {}
+        # multiprocessing keeps the order
+        # create DELETE events
+        prev_hosts = None
+        process_no = 0
+        for result in process_results:
+            if not result or 'hosts' not in result:
+                LOG.warn('missing result from process {}'.format(str(process_no)))
+                process_no = process_no + 1
+                continue
+            current_hosts = result['hosts']
+            if prev_hosts:
+                deleted_hosts = prev_hosts.difference(current_hosts)
+                for host in deleted_hosts:
+                    machine_events[(result['file_time'], host, 'DELETE')] = {}
+            prev_hosts = current_hosts
+            process_no = process_no + 1
+        
+        # we need to reverse the order for "CREATE" event
+        # so that we get the contents for create events from the earliest backup file.
+        # Example:
+        # In 2015-10-09 backup and for host x, "created_at" 2015-10-09 with 48 available VCPUs.
+        # In 2017-11-01 backup and for host x, "created_at" 2015-10-09 with 40 available VCPUs.
+        # For create event of host x, we choose the content from 2015-10-09 backup.
+        process_results.reverse()
+        for result in process_results:
+            if result and 'machine_events' in result:
+                machine_events.update(result['machine_events'])
         
     # refine machine events
     # 1. consecutive events with different timestamps but the same event type and properties is not valid; pick the earliest timestamp

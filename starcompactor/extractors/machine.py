@@ -9,6 +9,9 @@ import re
 import shutil
 import subprocess
 import tempfile
+import json
+import pandas as pd
+from dateutil.parser import parse as dateparse
 
 from . import mysql
 
@@ -264,5 +267,118 @@ def get_machine_event_vm(mysql_args, tmp_path, tmp_sql_file_name):
         # clean up
         db.cursor.execute('DROP DATABASE {}'.format(nova_tmp_database_name))
     
+    return machine_events, hosts
+
+def get_machine_events_from_parquet_vm(data_dir):
+    machine_events = {} # key is tuple (event_time, host_name, event)
+    hosts = set()
+    
+    # 1. Load services audit
+    services_path = os.path.join(data_dir, 'openstack_audit.audit_nova_services.parquet')
+    df_services = pd.read_parquet(services_path)
+    s_rows = []
+    for _, row in df_services.iterrows():
+        payload = json.loads(row['data'])
+        if payload.get('binary') == NOVA_COMPUTE_HOST_BINARY:
+            audit_ts = row['audit_changed_at']
+            audit_time = audit_ts.to_pydatetime() if isinstance(audit_ts, pd.Timestamp) else dateparse(str(audit_ts))
+            audit_time = audit_time.replace(tzinfo=None)
+            s_rows.append({
+                'host': payload.get('host'),
+                'service_updated_at': audit_time, 
+                'disabled': payload.get('disabled') == 1,
+            })
+    df_s = pd.DataFrame(s_rows)
+    if not df_s.empty:
+        df_s.sort_values('service_updated_at', inplace=True)
+            
+    # 2. Load compute nodes audit
+    cn_path = os.path.join(data_dir, 'openstack_audit.audit_nova_compute_nodes.parquet')
+    df_cn = pd.read_parquet(cn_path)
+    cn_rows = []
+    for _, row in df_cn.iterrows():
+        payload = json.loads(row['data'])
+        audit_ts = row['audit_changed_at']
+        audit_time = audit_ts.to_pydatetime() if isinstance(audit_ts, pd.Timestamp) else dateparse(str(audit_ts))
+        audit_time = audit_time.replace(tzinfo=None)
+        
+        host = payload.get('hypervisor_hostname') or payload.get('host')
+        
+        created_at_payload = payload.get('created_at')
+        created_at = dateparse(created_at_payload).replace(tzinfo=None) if created_at_payload else audit_time
+        
+        deleted_at_payload = payload.get('deleted_at')
+        if deleted_at_payload:
+            deleted_at = dateparse(deleted_at_payload).replace(tzinfo=None)
+        else:
+            deleted_at = audit_time if row['audit_event_type'] == 'DELETE' else None
+                
+        cn_rows.append({
+            'node_updated_at': audit_time,
+            'created_at': created_at,
+            'deleted_at': deleted_at,
+            'host': host,
+            'vcpus': payload.get('vcpus'),
+            'memory_mb': payload.get('memory_mb'),
+            'local_gb': payload.get('local_gb'),
+        })
+        
+    df_cn_parsed = pd.DataFrame(cn_rows)
+    if not df_cn_parsed.empty:
+        df_cn_parsed.sort_values('node_updated_at', inplace=True)
+        
+    # Pandas equivalent of a LEFT JOIN on host over time
+    if not df_cn_parsed.empty and not df_s.empty:
+        df_joined = pd.merge_asof(
+            df_cn_parsed, df_s,
+            left_on='node_updated_at', right_on='service_updated_at',
+            by='host', direction='backward'
+        )
+    else:
+        df_joined = df_cn_parsed
+        df_joined['disabled'] = False
+        df_joined['service_updated_at'] = None
+        
+    for _, row in df_joined.iterrows():
+        create_time = row.get('created_at')
+        node_update_time = row.get('node_updated_at')
+        delete_time = row.get('deleted_at')
+        service_update_time = row.get('service_updated_at')
+        disabled = row.get('disabled')
+        hostname = row.get('host')
+        vcpus = row.get('vcpus')
+        memory = row.get('memory_mb')
+        disk = row.get('local_gb')
+        
+        if not hostname:
+            continue
+            
+        rack = 'UNKNOWN'
+        if RACK_EXTRACTOR['hypervisor_hostname_regex'] and RACK_EXTRACTOR['rack_extract_group']:
+            m = re.search(RACK_EXTRACTOR['hypervisor_hostname_regex'], hostname)
+            if m:
+                rack = m.group(RACK_EXTRACTOR['rack_extract_group'])
+                
+        content = {
+            'rack': rack,
+            'vcpu_capability': vcpus,
+            'memory_capability_mb': memory,
+            'disk_capability_gb': disk
+        }
+            
+        # Identical to original extraction loop
+        machine_events[(create_time, hostname, 'CREATE')] = content
+        machine_events[(node_update_time, hostname, 'UPDATE')] = content
+        if pd.notnull(delete_time):
+            machine_events[(delete_time, hostname, 'DELETE')] = {}
+        if disabled:
+            if pd.notnull(service_update_time):
+                machine_events[(service_update_time, hostname, 'DISABLE')] = content
+        else:
+            if pd.notnull(service_update_time):
+                machine_events[(service_update_time, hostname, 'ENABLE')] = content
+                
+        hosts.add(hostname)
+        
     return machine_events, hosts
     
