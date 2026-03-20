@@ -118,6 +118,8 @@ def main(argv):
         help='Type of the instance. Choose vm or baremetal')
     parser.add_argument('--use-parquet', action='store_true',
         help='Use parquet audit files in data/ instead of daily mysql dumps')
+    parser.add_argument('--parquet-data-dir', type=str, default=None,
+        help='Directory containing parquet audit files)')
     parser.add_argument('--jsons', action='store_true',
         help='Format output as one JSON per line (defaults to CSV-style)')
     parser.add_argument('--verbose', action='store_const', const=logging.INFO, dest="loglevel",
@@ -147,8 +149,11 @@ def main(argv):
     mask = trans.Masker(**masker_config)
 
     if args.use_parquet and args.instance_type == 'vm':
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+        data_dir = args.parquet_data_dir
         machine_events, _ = machine.get_machine_events_from_parquet_vm(data_dir)
+    elif args.use_parquet and args.instance_type == 'baremetal':
+        data_dir = args.parquet_data_dir
+        machine_events, _ = machine.get_machine_events_from_parquet_baremetal(data_dir)
     else:
         backup_dir = config.get('backup', 'backup_dir')
         backup_files = [join(backup_dir, f) for f in listdir(backup_dir) if isfile(join(backup_dir, f)) and re.match(config.get('backup', 'backup_file_regex'), f)]

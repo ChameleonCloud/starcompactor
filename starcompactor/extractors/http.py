@@ -81,7 +81,7 @@ def traces(auth):
                 'USER_ID': instance.user_id,
                 'PROJECT_ID': instance.project_id,
                 'INSTANCE_NAME': instance.name,
-                'HOST_NAME (PHYSICAL)': instance.host,
+                'HOST_NAME (PHYSICAL)': instance.hypervisor_hostname,
                 'EVENT': event['event'],
                 'RESULT': event['result'],
                 'START_TIME': dateparse(event['start_time']),
