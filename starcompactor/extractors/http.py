@@ -1,5 +1,4 @@
 # coding: utf-8
-import functools
 import logging
 
 from dateutil.parser import parse as _dateparse
@@ -13,15 +12,71 @@ def dateparse(value):
         return None
     return _dateparse(value)
 
+
+def _paginate_servers(auth, **kwargs):
+    '''
+    Manually paginate servers(). When a page fetch fails because the marker
+    instance is permanently broken (e.g. Nova 500 InstanceNotFound), skip
+    that marker and try the next UUID from the previous page.  If every
+    candidate in the page is broken, stop pagination for this query.
+    '''
+    marker = None
+    last_page_ids = []
+
+    while True:
+        params = dict(kwargs, limit=PAGE_SIZE)
+        if marker:
+            params['marker'] = marker
+
+        try:
+            page = list(auth.compute.servers(**params))
+        except Exception as e:
+            LOG.warning(f'Failed to fetch page at marker {marker}: {e}')
+
+            # Walk forward through the previous page's UUIDs to find one that works
+            try:
+                start = last_page_ids.index(marker) + 1
+            except ValueError:
+                LOG.error('Cannot advance past broken marker %s; stopping.', marker)
+                return
+
+            advanced = False
+            for candidate in last_page_ids[start:]:
+                try:
+                    page = list(auth.compute.servers(**dict(params, marker=candidate)))
+                    LOG.warning('Skipped broken marker %s, resumed at %s', marker, candidate)
+                    marker = candidate
+                    advanced = True
+                    break
+                except Exception:
+                    continue
+
+            if not advanced:
+                LOG.error('All candidates after broken marker %s failed; stopping.', marker)
+                return
+
+        if not page:
+            break
+
+        last_page_ids = [s.id for s in page]
+        yield from page
+
+        if len(page) < PAGE_SIZE:
+            break
+
+        marker = last_page_ids[-1]
+
+
 def all_instances(auth, include_deleted=True):
     '''
     Iterate over all instances ever.
     '''
     if include_deleted:
-        yield from auth.compute.servers(all_projects=True, deleted=1)
-        yield from auth.compute.servers(all_projects=True, deleted=0)
+        yield from _paginate_servers(auth, all_projects=True, deleted=1)
+        yield from _paginate_servers(auth, all_projects=True, deleted=0)
     else:
-        yield from auth.compute.servers(all_projects=True, deleted=0)
+        yield from _paginate_servers(auth, all_projects=True, deleted=0)
+
 
 def instance_actions(auth, server_id):
     '''
@@ -29,7 +84,6 @@ def instance_actions(auth, server_id):
     of deleted instances can be returned for requests later than
     microversion 2.21.
     '''
-    # LOG.info(f'Fetching actions for server {server_id}')
     return list(auth.compute.server_actions(server_id))
 
 
@@ -37,9 +91,6 @@ def instance_action_details(auth, server_id, request_id):
     '''
     Get details for the action.
     '''
-    # The compute SDK doesn't natively expose action detail fetch in generator form 
-    # as easily, but we can call it explicitly using the internal SDK method if it exists,
-    # or fallback to `.get()` 
     response = auth.compute.get(
         f'/servers/{server_id}/os-instance-actions/{request_id}',
         microversion='2.21',
@@ -49,20 +100,38 @@ def instance_action_details(auth, server_id, request_id):
 
 def traces_raw(auth):
     '''Yield instance/action/event data in all combinations.'''
-    instances = all_instances(auth)
+    instances = list(all_instances(auth))
     LOG.info('Starting trace extraction...')
 
     for count, instance in enumerate(instances):
         if count % 25 == 0 and count > 0:
             LOG.info(f'Processed {count} instances...')
 
-        actions = instance_actions(auth, instance.id)
+        for attempt in range(3):
+            try:
+                actions = instance_actions(auth, instance.id)
+                break
+            except Exception as e:
+                LOG.warning(f'Attempt {attempt + 1}/3 failed fetching actions for {instance.id}: {e}')
+        else:
+            LOG.error(f'Skipping instance {instance.id} after 3 failed attempts')
+            continue
+
         if not actions:
             LOG.info('instance {} has no actions'.format(instance.id))
             continue
 
         for action in actions:
-            details = instance_action_details(auth, instance.id, action.request_id)
+            for attempt in range(3):
+                try:
+                    details = instance_action_details(auth, instance.id, action.request_id)
+                    break
+                except Exception as e:
+                    LOG.warning(f'Attempt {attempt + 1}/3 failed fetching action details for {instance.id}/{action.request_id}: {e}')
+            else:
+                LOG.error(f'Skipping action {action.request_id} for instance {instance.id} after 3 failed attempts')
+                continue
+
             for event in details['events']:
                 yield instance, action, event
 
