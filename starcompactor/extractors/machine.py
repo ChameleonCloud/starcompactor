@@ -381,4 +381,120 @@ def get_machine_events_from_parquet_vm(data_dir):
         hosts.add(hostname)
         
     return machine_events, hosts
-    
+
+
+def _parse_audit_timestamp(ts):
+    """Parse an audit timestamp to a naive datetime, handling both Timestamps and strings."""
+    if isinstance(ts, pd.Timestamp):
+        return ts.to_pydatetime().replace(tzinfo=None)
+    return dateparse(str(ts)).replace(tzinfo=None)
+
+
+def _read_and_load_parquet(path):
+    """Read a parquet audit file and return a DataFrame with payload fields plus
+    audit_changed_at and audit_event_type preserved from the parquet row."""
+    df = pd.read_parquet(path)
+    rows = []
+    for _, row in df.iterrows():
+        payload = json.loads(row['data'])
+        payload['audit_changed_at'] = _parse_audit_timestamp(row['audit_changed_at'])
+        payload['audit_event_type'] = row['audit_event_type']
+        rows.append(payload)
+    return pd.DataFrame(rows)
+
+
+def get_machine_events_from_parquet_baremetal(data_dir):
+    machine_events = {}  # key is tuple (event_time, node_id, event)
+    hosts = set()
+
+    nodes_path = os.path.join(data_dir, 'openstack_audit.audit_ironic_nodes.parquet')
+    blazar_hosts_path = os.path.join(data_dir, 'openstack_audit.audit_blazar_computehosts.parquet')
+    blazar_host_capabilities_path = os.path.join(data_dir, 'openstack_audit.audit_blazar_computehost_extra_capabilities.parquet')
+    blazar_capabilities_path = os.path.join(data_dir, 'openstack_audit.audit_blazar_resource_properties.parquet')
+
+    nodes = _read_and_load_parquet(nodes_path)
+    blazar_hosts = _read_and_load_parquet(blazar_hosts_path)
+    blazar_host_capabilities = _read_and_load_parquet(blazar_host_capabilities_path)
+    blazar_capabilities = _read_and_load_parquet(blazar_capabilities_path)
+
+    # Filter capabilities to only the properties we care about (mirrors the SQL WHERE clause)
+    blazar_capabilities = blazar_capabilities[blazar_capabilities['property_name'].isin(BAREMETAL_PROPERTIES)]
+
+    # Join nodes -> blazar_hosts on uuid = hypervisor_hostname
+    # Suffixes avoid collisions on shared column names (created_at, updated_at, etc.)
+    df = pd.merge(nodes, blazar_hosts,
+                  left_on='uuid', right_on='hypervisor_hostname',
+                  suffixes=('_node', '_blazar_host'))
+
+    # Join -> blazar_host_capabilities on computehost_id = blazar_hosts.id
+    # blazar_hosts.id came through as id_blazar_host after the previous merge
+    df = pd.merge(df, blazar_host_capabilities,
+                  left_on='id_blazar_host', right_on='computehost_id',
+                  suffixes=('', '_blazar_cap'))
+
+    # Join -> blazar_capabilities (resource_properties) on property_id = id
+    df = pd.merge(df, blazar_capabilities,
+                  left_on='property_id', right_on='id',
+                  suffixes=('_cap', '_resource_prop'))
+
+    # At this point the columns we need are:
+    #   create_date      -> created_at_blazar_host   (when the host was registered in Blazar)
+    #   node_id          -> uuid                      (ironic node UUID)
+    #   maintenance      -> maintenance_node           (ironic maintenance flag)
+    #   node_updated_at  -> audit_changed_at_node      (audit timestamp of the ironic node row)
+    #   cap_updated_at   -> audit_changed_at_cap       (audit timestamp of the capability row,
+    #                                                   used as the UPDATE event time)
+    #   capability_name  -> property_name              (from resource_properties)
+    #   capability_value -> capability_value            (from computehost_extra_capabilities)
+
+    # Group by node so we can collect all properties and derive per-node event times,
+    # mirroring the SQL version's node-by-node loop.
+    for node_id, group in df.groupby('uuid'):
+        # CREATE time: created_at from blazar computehosts (equivalent to SQL create_date)
+        create_date_raw = group['created_at_blazar_host'].iloc[0]
+        if pd.isnull(create_date_raw):
+            create_date = None
+        elif isinstance(create_date_raw, str):
+            create_date = dateparse(create_date_raw).replace(tzinfo=None)
+        else:
+            create_date = create_date_raw
+
+        # UPDATE time: max audit_changed_at across all capability rows for this node
+        # (audit_changed_at is already a naive datetime, set by _read_and_load_parquet)
+        # After merges the capability audit timestamp is in audit_changed_at_cap
+        cap_audit_times = group['audit_changed_at_cap'].dropna()
+        update_time = cap_audit_times.max() if not cap_audit_times.empty else create_date
+
+        # Collect property dict for CREATE / UPDATE events
+        property_collections = {
+            row['property_name']: row['capability_value']
+            for _, row in group.iterrows()
+            if row['property_name'] in BAREMETAL_PROPERTIES
+        }
+
+        # Emit CREATE event
+        if create_date is not None:
+            machine_events[(create_date, node_id, 'CREATE')] = property_collections
+
+        # Emit UPDATE event
+        if update_time is not None:
+            machine_events[(update_time, node_id, 'UPDATE')] = property_collections
+
+        # Emit DISABLE / ENABLE events, one per distinct (node_updated_at, maintenance) pair.
+        # Each ironic audit row can have its own maintenance state at its own timestamp,
+        # so we deduplicate by (audit_changed_at_node, maintenance) to avoid overwriting
+        # events that were already written with the same key.
+        for _, row in group.drop_duplicates(subset=['audit_changed_at_node', 'maintenance']).iterrows():
+            node_update_time = row['audit_changed_at_node']
+            is_maint = row['maintenance'] == 1
+
+            event_type = 'DISABLE' if is_maint else 'ENABLE'
+            maint_key = (node_update_time, node_id, event_type)
+
+            # Mirror SQL version: only write the first occurrence of a given key
+            if maint_key not in machine_events:
+                machine_events[maint_key] = {}
+            # Accumulate properties onto the event (SQL version builds the dict incrementally)
+            machine_events[maint_key][row['property_name']] = row['capability_value']
+
+    return machine_events, hosts

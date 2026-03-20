@@ -19,6 +19,7 @@ from .util import pipeline
 TRACE_TYPE = 'instance'
 
 LOG = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 def main():
     config = configparser.ConfigParser()
