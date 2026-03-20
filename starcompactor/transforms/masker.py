@@ -32,6 +32,8 @@ class Masker:
     def __init__(self, method='sha256', salt=None, truncate=None):
         if salt is None:
             self.salt = os.urandom(32)
+        elif isinstance(salt, str):
+            self.salt = salt.encode('utf-8')
         else:
             self.salt = salt
         self.method = method
@@ -40,7 +42,7 @@ class Masker:
     def __call__(self, data):
         if self.method == 'raw':
             return data[:self.truncate]
-        h = hashlib.new(self.method, self.salt.encode('utf-8'))
+        h = hashlib.new(self.method, self.salt)
         h.update(data.encode('utf-8'))
         return h.hexdigest()[:self.truncate]
 
