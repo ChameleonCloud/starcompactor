@@ -1,3 +1,4 @@
 python-dateutil
 configparser
 pandas
+pyarrow
