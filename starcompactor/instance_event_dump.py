@@ -78,7 +78,7 @@ def main(argv):
 
     if args.use_parquet:
         data_dir = args.parquet_data_dir
-        t = instance_extractor.get_instance_events_from_parquet(data_dir, start=start, end=end)
+        t = instance_extractor.get_instance_events_from_parquet(data_dir, start=start, end=end, instance_type=args.instance_type)
         t = pipeline(t,
                     functools.partial(trans.mask_fields, trace_type=TRACE_TYPE, masker=mask),
                     functools.partial(trans.extra_times, epoch=epoch),
