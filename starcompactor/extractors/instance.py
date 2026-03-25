@@ -52,7 +52,7 @@ def _to_dt(val):
     return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 
-def get_instance_events_from_parquet(data_dir, start=None, end=None):
+def get_instance_events_from_parquet(data_dir, start=None, end=None, instance_type=None):
     """Read instance action events from openstack_audit parquet files and yield trace dicts.
 
     Replicates the SQL JOIN:
@@ -71,6 +71,8 @@ def get_instance_events_from_parquet(data_dir, start=None, end=None):
         Optional lower bound on ia.created_at (action start time).
     end : datetime or None
         Optional upper bound on ia.created_at (action start time).
+    instance_type : str or None
+        Optional type of instance (e.g. 'baremetal') to determine host selection.
 
     Yields
     ------
@@ -118,7 +120,7 @@ def get_instance_events_from_parquet(data_dir, start=None, end=None):
 
     # Keep only columns we need to reduce memory usage
     instance_cols = ['uuid', 'memory_mb', 'root_gb', 'vcpus',
-                     'user_id', 'project_id', 'hostname', 'host']
+                     'user_id', 'project_id', 'hostname', 'host', 'node']
     df_instances = df_instances[[c for c in instance_cols if c in df_instances.columns]]
 
     # Deduplicate instances by uuid — keep the first INSERT per uuid
@@ -139,7 +141,7 @@ def get_instance_events_from_parquet(data_dir, start=None, end=None):
     # Deduplicate actions by id
     df_actions = df_actions.drop_duplicates(subset=['id'], keep='first')
 
-    event_cols = ['action_id', 'event', 'start_time', 'finish_time', 'result']
+    event_cols = ['action_id', 'event', 'start_time', 'finish_time', 'result', 'host']
     df_events = df_events[[c for c in event_cols if c in df_events.columns]]
 
     # JOIN: instances <-> instance_actions on uuid = instance_uuid
@@ -178,6 +180,25 @@ def get_instance_events_from_parquet(data_dir, start=None, end=None):
             n_skipped += 1
             continue
 
+        host_event = row.get('host_event')
+        host_instance = row.get('host')
+        if pd.isnull(host_event):
+            host_event = None
+        if pd.isnull(host_instance):
+            host_instance = None
+
+        if instance_type == 'baremetal':
+            node_instance = row.get('node')
+            if pd.isnull(node_instance):
+                node_instance = None
+            final_host = node_instance or host_event or host_instance
+        else:
+            final_host = host_event or host_instance
+
+        # print(f"final_host: {final_host}, host_event: {host_event}, host_instance: {host_instance}, node_instance: {node_instance}")
+        if not final_host:
+            LOG.debug('Missing host for event: %s', row.to_dict())
+
         trace = {
             'INSTANCE_UUID':        row.get('uuid'),
             'EVENT':                row.get('event'),
@@ -187,7 +208,7 @@ def get_instance_events_from_parquet(data_dir, start=None, end=None):
             'INSTANCE_NAME':        row.get('hostname'),
             'USER_ID':              row.get('user_id'),
             'PROJECT_ID':           row.get('project_id'),
-            'HOST_NAME (PHYSICAL)': row.get('host'),
+            'HOST_NAME (PHYSICAL)': final_host,
             # Extra instance fields preserved by the original SQL extractor
             'memory_mb':            row.get('memory_mb'),
             'root_gb':              row.get('root_gb'),
