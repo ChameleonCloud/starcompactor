@@ -7,17 +7,22 @@ RCLONE_BUCKET=usage_new_collector
 RCLONE_REMOTE=uc_chameleon
 DATA_DIR=./data
 DATESTAMP=$(date +%Y_%m_%d)
+INSTANCE_TYPE="baremetal"
+
+OUT_DIR_BASE=./out
 
 mkdir -p $DATA_DIR
 
 # opts for cloud, data dir, and sync flag
-while getopts "o:d:s" opt; do
+while getopts "o:d:i:sb:" opt; do
     case $opt in
         o) OS_CLOUD=$OPTARG;;
         d) PARQUET_DATA_DIR=$OPTARG;;
+        i) INSTANCE_TYPE=$OPTARG;;
         s) SHOULD_SYNC="true";;
+        b) OUT_DIR_BASE=$OPTARG;;
         ?)
-            echo "Usage: $0 -o <os_cloud> -d <parquet_data_dir> [-s] <action>"
+            echo "Usage: $0 -o <os_cloud> -d <parquet_data_dir> [-s] [-b <out_dir_base>] <action>"
             echo "action: instance, machine, or sync"
             exit 1
             ;;
@@ -62,14 +67,14 @@ else
 	CLOUD_DIR=${OS_CLOUD}
 fi
 
-OUT_DIR=./chameleon_${CLOUD_DIR}_cloud_trace_${DATESTAMP}
+OUT_DIR=${OUT_DIR_BASE}/${CLOUD_DIR}_cloud_trace_${DATESTAMP}
 
 if [ "$ACTION" = "instance" -a -n "${PARQUET_DATA_DIR}" ]; then
 	mkdir -p $OUT_DIR
 	echo "Generating instance events for $OS_CLOUD"
 	echo "Storing output in $OUT_DIR"
 	time python -m starcompactor.instance_event_dump \
-		--use-parquet --instance-type baremetal \
+		--use-parquet --instance-type $INSTANCE_TYPE \
 		--parquet-data-dir $PARQUET_DATA_DIR \
         --hashed-masking-salt $SALT_VALUE \
 		${OUT_DIR}/${CLOUD_DIR}_instance_events.csv 2>&1 \
@@ -81,7 +86,7 @@ if [ "$ACTION" = "machine" -a -n "${PARQUET_DATA_DIR}" ]; then
 	echo "Generating machine events for $PARQUET_DATA_DIR"
 	echo "Storing output in $OUT_DIR"
     time python -m starcompactor.machine_event_dump \
-		--use-parquet --instance-type baremetal \
+		--use-parquet --instance-type $INSTANCE_TYPE \
 		--parquet-data-dir $PARQUET_DATA_DIR \
         --hashed-masking-salt $SALT_VALUE \
 		${OUT_DIR}/${CLOUD_DIR}_machine_events.csv 2>&1 \

@@ -114,7 +114,7 @@ def main(argv):
         help='Hashed mask method (for host name). "sha1-raw" is legacy and not recommended as it is vulnerable to cracking. "none" is for debugging only.')
     parser.add_argument('--hashed-masking-salt', type=str, default=None,
         help = 'Salt of hashed masking method (for host name). Please use the same salt for instance event host name! Ignored if host name mask type is "none".')
-    parser.add_argument('--instance-type', type=str, default='vm', choices=['vm', 'baremetal'],
+    parser.add_argument('--instance-type', type=str, default='baremetal', choices=['vm', 'baremetal'],
         help='Type of the instance. Choose vm or baremetal')
     parser.add_argument('--use-parquet', action='store_true',
         help='Use parquet audit files in data/ instead of daily mysql dumps')

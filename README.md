@@ -4,6 +4,69 @@ Generate traces from the Nova, Blazar and Ironic installations for a source of a
 
 This Python program is developed based on a Java program developed by Pankaj Saha ([Java version](https://bitbucket.org/psaha4/chameleon/src/cddb6aaa6ac4a348786b1408a63d28290b6a317a/openStack/src/main/java/extractor/Trace.java?at=master&fileviewer=file-view-default)). 
 
+
+## Recommended Setup and Usage
+
+0. Clone this repository
+
+```bash
+git clone https://github.com/chameleoncloud/starcompactor.git
+cd starcompactor
+```
+
+1. Create a python virtual environment and activate it
+
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
+2. Install required python packages
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Install `rclone` and configure a `uc_chameleon` remote
+```
+[uc_chameleon]
+type = s3
+provider = Other
+access_key_id =
+secret_access_key =
+endpoint = https://chi.uc.chameleoncloud.org:7480
+```
+
+To get the credentials, run the following openstack command at UC:
+```
+openstack ec2 credentials create
+```
+
+To validate this is set up correctly, run:
+```bash
+./run.sh sync
+```
+
+Afterwards, audit data will be stored to the `./data/` directory.
+
+4. To generate trace for an individual site, run the following command:
+
+```bash
+./run.sh -s -d ./data/<site> -i <instance_type> -b ./out instance
+./run.sh -s -d ./data/<site> -i <instance_type> -b ./out machine
+```
+
+Site should be `kvm_tacc`, `chi_uc`, or `chi_tacc`, and instance type should be `vm` or `baremetal`.
+
+To generate all traces, simply run:
+```bash
+./run_all.sh
+```
+
+This will generate uncompressed traces under `./out` as well as compressed zip archives.
+
+# Old method
+
 ## Prerequisites
 * Create a mysql database user `cc_trace` with the following privileges:
 
